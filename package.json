@@ -1,0 +1,45 @@
+{
+  "name": "bubbles-npm-get-device-token",
+  "version": "0.1.0",
+  "description": "Small helper package for getting native push tokens from Expo apps via expo-notifications.",
+  "license": "MIT",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup src/index.ts --format cjs,esm --dts",
+    "clean": "rm -rf dist",
+    "prepare": "npm run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "expo",
+    "expo-notifications",
+    "react-native",
+    "push-notifications",
+    "fcm",
+    "apns"
+  ],
+  "peerDependencies": {
+    "expo-notifications": ">=0.28.0",
+    "react-native": ">=0.72.0"
+  },
+  "devDependencies": {
+    "expo-notifications": ">=0.28.0",
+    "react-native": ">=0.72.0",
+    "tsup": "^8.2.4",
+    "typescript": "^5.5.4"
+  }
+}
