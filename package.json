@@ -1,5 +1,5 @@
 {
-  "name": "bubbles-npm-get-device-token",
+  "name": "@fishonfire/bubbles-expo",
   "version": "0.1.0",
   "description": "Small helper package for getting native push tokens from Expo apps via expo-notifications.",
   "license": "MIT",
