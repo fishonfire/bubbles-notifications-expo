@@ -3,6 +3,7 @@ import type { Notification } from 'expo-notifications';
 
 import type { PermissionRequestOptions } from './permissions';
 import type { NativeTokenType } from './tokens';
+import type { BubblesDeviceAttributeValue } from '../api/device-client';
 
 export interface RegisterDeviceOptions {
   requestPermissions?: boolean;
@@ -49,6 +50,10 @@ export interface BubblesNotificationsProviderProps {
 
 export interface BubblesNotificationsContextValue {
   registerDevice: (options?: RegisterDeviceOptions) => Promise<void>;
+  addDeviceAttribute: (
+    name: string,
+    value: BubblesDeviceAttributeValue,
+  ) => Promise<void>;
   deviceId: string | null;
   pushToken: string | null;
   tokenType: NativeTokenType | null;

@@ -10,6 +10,7 @@ type SyncResult = {
 };
 
 const syncCalls: Array<Record<string, unknown>> = [];
+const attributeCalls: Array<Record<string, unknown>> = [];
 const storedApiBaseUrls: string[] = [];
 const storedAppKeys: string[] = [];
 const storedDeviceIds: Array<string | null> = [];
@@ -46,6 +47,21 @@ vi.doMock('../../src/api/device-client.ts', () => ({
     syncCalls.push(options);
     return syncState.implementation();
   },
+  updateBubblesDeviceAttributes: async (options: Record<string, unknown>) => {
+    attributeCalls.push(options);
+  },
+}));
+
+vi.doMock('../../src/runtime/device-attributes.ts', () => ({
+  collectBubblesDeviceAttributes: async () => ({
+    device: {
+      manufacturer: 'Apple',
+      deviceType: 'phone',
+    },
+    app: {
+      applicationId: 'com.example.app',
+    },
+  }),
 }));
 
 vi.doMock('../../src/storage/device-state.ts', () => ({
@@ -98,6 +114,7 @@ const {
 
 beforeEach(() => {
   syncCalls.length = 0;
+  attributeCalls.length = 0;
   storedApiBaseUrls.length = 0;
   storedAppKeys.length = 0;
   storedDeviceIds.length = 0;
@@ -134,6 +151,22 @@ test('syncDeviceRegistrationState stores base URL, resolves installation id, and
   assert.deepEqual(storedApiBaseUrls, ['https://api.example.com']);
   assert.deepEqual(storedAppKeys, ['app-key-1']);
   assert.deepEqual(storedDeviceIds, ['created-device-id']);
+  assert.deepEqual(attributeCalls, [
+    {
+      apiBaseUrl: 'https://api.example.com',
+      appKey: 'app-key-1',
+      deviceId: 'created-device-id',
+      attributes: {
+        device: {
+          manufacturer: 'Apple',
+          deviceType: 'phone',
+        },
+        app: {
+          applicationId: 'com.example.app',
+        },
+      },
+    },
+  ]);
   assert.deepEqual(syncCalls, [
     {
       apiBaseUrl: 'https://api.example.com',
@@ -184,6 +217,22 @@ test('syncDeviceRegistrationState skips installation-id lookup when notification
 
   assert.deepEqual(installationCalls, []);
   assert.equal(syncCalls[0]?.fid, null);
+  assert.deepEqual(attributeCalls, [
+    {
+      apiBaseUrl: 'https://api.example.com',
+      appKey: 'app-key-2',
+      deviceId: 'existing-device-id',
+      attributes: {
+        device: {
+          manufacturer: 'Apple',
+          deviceType: 'phone',
+        },
+        app: {
+          applicationId: 'com.example.app',
+        },
+      },
+    },
+  ]);
   assert.deepEqual(result, {
     action: 'updated',
     deviceId: 'existing-device-id',

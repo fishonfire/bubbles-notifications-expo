@@ -12,6 +12,7 @@ interface ProviderContextValue {
   registerDevice: (
     options?: Record<string, unknown>,
   ) => Promise<void>;
+  addDeviceAttribute: (name: string, value: unknown) => Promise<void>;
   deviceId: string | null;
   pushToken: string | null;
   tokenType: string | null;
@@ -210,6 +211,7 @@ const appKeyCalls: string[] = [];
 let ensureChannelCallCount = 0;
 const registerCalls: Array<Record<string, unknown>> = [];
 const syncCalls: Array<Record<string, unknown>> = [];
+const attributeCalls: Array<Record<string, unknown>> = [];
 const notificationHandlerCalls: Array<Record<string, unknown> | undefined> = [];
 let clearNotificationHandlerCallCount = 0;
 const responseObserverCalls: Array<Record<string, unknown>> = [];
@@ -338,6 +340,12 @@ vi.doMock('../../src/runtime/register-device.ts', () => ({
   },
 }));
 
+vi.doMock('../../src/api/device-client.ts', () => ({
+  updateBubblesDeviceAttributes: async (options: Record<string, unknown>) => {
+    attributeCalls.push(options);
+  },
+}));
+
 vi.doMock('../../src/runtime/presentation.ts', () => ({
   prepareBubblesNotificationPresentation: async () => {
     ensureChannelCallCount += 1;
@@ -385,6 +393,7 @@ beforeEach(() => {
   ensureChannelCallCount = 0;
   registerCalls.length = 0;
   syncCalls.length = 0;
+  attributeCalls.length = 0;
   notificationHandlerCalls.length = 0;
   clearNotificationHandlerCallCount = 0;
   responseObserverCalls.length = 0;
@@ -495,6 +504,75 @@ test('BubblesNotificationsProvider registerDevice rejects when userId normalizes
     getContextValue(renderer).error?.message,
     '[@fishonfire/bubbles-expo] "registerDevice()" requires a non-null "userId" before the device can be synced.',
   );
+
+  renderer.unmount();
+});
+
+test('BubblesNotificationsProvider addDeviceAttribute posts a single custom attribute', async () => {
+  const renderer = await renderProvider({
+    ready: false,
+    userId: 'user-123',
+  });
+
+  await getContextValue(renderer).addDeviceAttribute('plan', {
+    tier: 'pro',
+    seats: 4,
+  });
+  await renderer.flush();
+
+  assert.deepEqual(attributeCalls, [
+    {
+      apiBaseUrl: 'https://api.example.com',
+      appKey: 'app-key-123',
+      deviceId: 'stored-device',
+      attributes: {
+        plan: {
+          tier: 'pro',
+          seats: 4,
+        },
+      },
+    },
+  ]);
+  assert.equal(getContextValue(renderer).error, null);
+
+  renderer.unmount();
+});
+
+test('BubblesNotificationsProvider addDeviceAttribute rejects before a device id is available', async () => {
+  storedState.deviceId = null;
+  const renderer = await renderProvider({
+    ready: false,
+    userId: 'user-123',
+  });
+
+  await assert.rejects(
+    () => getContextValue(renderer).addDeviceAttribute('plan', 'pro'),
+    /"addDeviceAttribute\(\)" requires a backend "deviceId" before attributes can be synced\./,
+  );
+  await renderer.flush();
+
+  assert.deepEqual(attributeCalls, []);
+  assert.equal(
+    getContextValue(renderer).error?.message,
+    '[@fishonfire/bubbles-expo] "addDeviceAttribute()" requires a backend "deviceId" before attributes can be synced.',
+  );
+
+  renderer.unmount();
+});
+
+test('BubblesNotificationsProvider addDeviceAttribute rejects undefined values', async () => {
+  const renderer = await renderProvider({
+    ready: false,
+    userId: 'user-123',
+  });
+
+  await assert.rejects(
+    () => getContextValue(renderer).addDeviceAttribute('plan', undefined),
+    /"addDeviceAttribute\(\)" requires "value" to be a JSON-compatible value\./,
+  );
+  await renderer.flush();
+
+  assert.deepEqual(attributeCalls, []);
 
   renderer.unmount();
 });

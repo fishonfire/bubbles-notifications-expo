@@ -29,11 +29,15 @@ export {
   extractDeviceIdFromDeviceResponse,
   syncBubblesDevice,
   updateBubblesDevice,
+  updateBubblesDeviceAttributes,
 } from './api/device-client';
 export type {
+  BubblesDeviceAttributes,
+  BubblesDeviceAttributeValue,
   CreateBubblesDeviceOptions,
   SyncBubblesDeviceOptions,
   SyncBubblesDeviceResult,
+  UpdateBubblesDeviceAttributesOptions,
   UpdateBubblesDeviceOptions,
 } from './api/device-client';
 export {
@@ -104,6 +108,7 @@ export {
   getDeviceToken,
   getFCMToken,
 } from './runtime/tokens';
+export { collectBubblesDeviceAttributes } from './runtime/device-attributes';
 export {
   BubblesNotificationsProvider,
 } from './runtime/BubblesNotificationsProvider';

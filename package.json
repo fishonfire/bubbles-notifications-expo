@@ -68,7 +68,9 @@
   },
   "dependencies": {
     "@fishonfire/bubbles-js": "file:../bubbles-notifications-js",
+    "expo-application": "~57.0.2",
     "expo-constants": "~57.0.16",
+    "expo-device": "~57.0.1",
     "expo-file-system": "~57.0.6"
   },
   "devDependencies": {

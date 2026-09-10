@@ -12,6 +12,11 @@ const deviceClientCalls = {
     payload: Record<string, unknown>;
     requestOptions: unknown;
   }>,
+  attributes: [] as Array<{
+    deviceId: string;
+    attributes: Record<string, unknown>;
+    requestOptions: unknown;
+  }>,
 };
 
 class MockDeviceClient {
@@ -39,6 +44,19 @@ class MockDeviceClient {
     });
     return { id: deviceId };
   }
+
+  async updateDeviceAttributes(
+    deviceId: string,
+    attributes: Record<string, unknown>,
+    requestOptions: unknown,
+  ) {
+    deviceClientCalls.attributes.push({
+      deviceId,
+      attributes,
+      requestOptions,
+    });
+    return { id: deviceId };
+  }
 }
 
 vi.doMock('@fishonfire/bubbles-js', () => ({
@@ -53,12 +71,14 @@ const {
   BubblesAppAuthenticationError,
   createBubblesDeviceClient,
   syncBubblesDevice,
+  updateBubblesDeviceAttributes,
 } = await import('../../src/api/device-client.ts');
 
 beforeEach(() => {
   deviceClientCalls.constructor.length = 0;
   deviceClientCalls.create.length = 0;
   deviceClientCalls.update.length = 0;
+  deviceClientCalls.attributes.length = 0;
 });
 
 test('createBubblesDeviceClient trims the baseUrl before constructing the client', () => {
@@ -154,6 +174,71 @@ test('syncBubblesDevice preserves request headers while applying X-App-Key', asy
       'X-App-Key': 'app-key-2',
     },
   });
+});
+
+test('updateBubblesDeviceAttributes posts normalized attributes with X-App-Key', async () => {
+  const result = await updateBubblesDeviceAttributes({
+    apiBaseUrl: ' https://api.example.com ',
+    appKey: ' app-key-3 ',
+    deviceId: ' device-3 ',
+    attributes: {
+      device: {
+        manufacturer: 'Apple',
+        deviceType: 'phone',
+      },
+      os: {
+        version: '18.0',
+      },
+      app: {
+        nativeApplicationVersion: '1.2.3',
+      },
+    },
+    requestOptions: {
+      headers: {
+        'X-Custom': 'custom',
+      },
+    },
+  });
+
+  assert.deepEqual(deviceClientCalls.attributes, [
+    {
+      deviceId: 'device-3',
+      attributes: {
+        device: {
+          manufacturer: 'Apple',
+          deviceType: 'phone',
+        },
+        os: {
+          version: '18.0',
+        },
+        app: {
+          nativeApplicationVersion: '1.2.3',
+        },
+      },
+      requestOptions: {
+        headers: {
+          'X-Custom': 'custom',
+          'X-App-Key': 'app-key-3',
+        },
+      },
+    },
+  ]);
+  assert.deepEqual(result, {
+    id: 'device-3',
+  });
+});
+
+test('updateBubblesDeviceAttributes rejects non-object attributes', async () => {
+  await assert.rejects(
+    () =>
+      updateBubblesDeviceAttributes({
+        apiBaseUrl: 'https://api.example.com',
+        appKey: 'app-key-1',
+        deviceId: 'device-1',
+        attributes: [] as never,
+      }),
+    /"attributes" must be an object\./,
+  );
 });
 
 test('syncBubblesDevice maps invalid app key responses to an app authentication error', async () => {

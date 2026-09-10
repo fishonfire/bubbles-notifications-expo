@@ -162,6 +162,21 @@ export function EnableNotificationsButton() {
 }
 ```
 
-`useBubblesNotifications()` also exposes `deviceId`, `pushToken`, `permissionStatus`, `notificationsEnabled`, `tokenType`, and `error`.
+`useBubblesNotifications()` also exposes `addDeviceAttribute`, `deviceId`, `pushToken`, `permissionStatus`, `notificationsEnabled`, `tokenType`, and `error`.
 
 If your app already requested notification permissions, call `registerDevice({ requestPermissions: false })`.
+
+## Add custom device attributes
+
+After the provider has a backend `deviceId`, apps can add their own device attributes:
+
+```tsx
+const { addDeviceAttribute, deviceId } = useBubblesNotifications();
+
+if (deviceId) {
+  void addDeviceAttribute('plan', {
+    tier: 'pro',
+    seats: 4,
+  });
+}
+```

@@ -3062,6 +3062,13 @@ expo-constants@^57.0.9, expo-constants@~57.0.16, expo-constants@~57.0.9:
   dependencies:
     "@expo/env" "~2.4.3"
 
+expo-device@~57.0.1:
+  version "57.0.1"
+  resolved "https://registry.npmjs.org/expo-device/-/expo-device-57.0.1.tgz"
+  integrity sha512-jyEMDUticH+dhcL3GHa2aiifOvGXJsmb3oVT2R2q4i8bN7Bddy61+NkpMmuS2VAZrvoLQwf0TJJ/1vi1ukvutA==
+  dependencies:
+    ua-parser-js "^0.7.33"
+
 expo-file-system@~57.0.2, expo-file-system@~57.0.6:
   version "57.0.6"
   resolved "https://registry.npmjs.org/expo-file-system/-/expo-file-system-57.0.6.tgz"
@@ -5092,6 +5099,11 @@ type-fest@^0.7.1:
   version "5.9.3"
   resolved "https://registry.npmjs.org/typescript/-/typescript-5.9.3.tgz"
   integrity sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==
+
+ua-parser-js@^0.7.33:
+  version "0.7.41"
+  resolved "https://registry.npmjs.org/ua-parser-js/-/ua-parser-js-0.7.41.tgz"
+  integrity sha512-O3oYyCMPYgNNHuO7Jjk3uacJWZF8loBgwrfd/5LE/HyZ3lUIOdniQ7DNXJcIgZbwioZxk0fLfI4EVnetdiX5jg==
 
 ufo@^1.6.3:
   version "1.6.4"

@@ -15,8 +15,10 @@ import {
 } from './device-payload';
 import {
   getRequiredNonEmptyString,
+  isPlainObject,
   normalizeIdentifier,
 } from '../internal/validation';
+import { failWithBubblesError } from '../internal/errors';
 
 const APP_KEY_HEADER_NAME = 'X-App-Key';
 const INVALID_APP_KEY_ERROR = 'invalid app key for app';
@@ -69,6 +71,23 @@ export interface SyncBubblesDeviceResult<TResponse = unknown> {
   action: 'created' | 'updated';
   deviceId: string | null;
   response: TResponse;
+}
+
+export type BubblesDeviceAttributeValue =
+  | string
+  | number
+  | boolean
+  | null
+  | BubblesDeviceAttributeValue[]
+  | { [key: string]: BubblesDeviceAttributeValue };
+
+export type BubblesDeviceAttributes = Record<string, BubblesDeviceAttributeValue>;
+
+export interface UpdateBubblesDeviceAttributesOptions
+  extends BubblesDeviceClientInput {
+  deviceId: string | number;
+  attributes: BubblesDeviceAttributes;
+  requestOptions?: RequestOptions;
 }
 
 function resolveDeviceClient(options: BubblesDeviceClientInput): DeviceClient {
@@ -139,6 +158,16 @@ function throwAppAuthenticationError(error: unknown): never {
   throw error;
 }
 
+function normalizeDeviceAttributes(
+  value: BubblesDeviceAttributes,
+): BubblesDeviceAttributes {
+  if (!isPlainObject(value)) {
+    failWithBubblesError('"attributes" must be an object.');
+  }
+
+  return value;
+}
+
 export function extractDeviceIdFromDeviceResponse(
   value: unknown,
 ): string | null {
@@ -186,6 +215,25 @@ export async function updateBubblesDevice<TResponse = unknown>(
     return await client.updateDevice<TResponse, BubblesUpdateDevicePayload>(
       normalizeIdentifier(options.deviceId, 'deviceId'),
       payload,
+      withAppKeyHeader(options.appKey, options.requestOptions),
+    );
+  } catch (error) {
+    throwAppAuthenticationError(error);
+  }
+}
+
+export async function updateBubblesDeviceAttributes<TResponse = unknown>(
+  options: UpdateBubblesDeviceAttributesOptions,
+): Promise<TResponse> {
+  const client = resolveDeviceClient(options);
+
+  try {
+    return await client.updateDeviceAttributes<
+      TResponse,
+      BubblesDeviceAttributes
+    >(
+      normalizeIdentifier(options.deviceId, 'deviceId'),
+      normalizeDeviceAttributes(options.attributes),
       withAppKeyHeader(options.appKey, options.requestOptions),
     );
   } catch (error) {

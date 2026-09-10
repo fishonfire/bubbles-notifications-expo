@@ -3,6 +3,10 @@ import { useEffect, useRef, useState } from 'react';
 import { failWithBubblesError } from '../internal/errors';
 import { getRequiredNonEmptyString } from '../internal/validation';
 import { storeApiBaseUrl, storeAppKey } from '../storage/device-state';
+import {
+  updateBubblesDeviceAttributes,
+  type BubblesDeviceAttributeValue,
+} from '../api/device-client';
 
 import {
   BubblesNotificationsContext,
@@ -206,8 +210,39 @@ export function BubblesNotificationsProvider(
     });
   }
 
+  function addDeviceAttribute(
+    name: string,
+    value: BubblesDeviceAttributeValue,
+  ) {
+    return enqueueOperation(async () => {
+      const attributeName = getRequiredNonEmptyString(name, 'attributeName');
+
+      if (value === undefined) {
+        failWithBubblesError(
+          '"addDeviceAttribute()" requires "value" to be a JSON-compatible value.',
+        );
+      }
+
+      if (state.deviceId === null) {
+        failWithBubblesError(
+          '"addDeviceAttribute()" requires a backend "deviceId" before attributes can be synced.',
+        );
+      }
+
+      await updateBubblesDeviceAttributes({
+        apiBaseUrl,
+        appKey,
+        deviceId: state.deviceId,
+        attributes: {
+          [attributeName]: value,
+        },
+      });
+    });
+  }
+
   const contextValue = {
     registerDevice,
+    addDeviceAttribute,
     deviceId: state.deviceId,
     pushToken: state.pushToken,
     tokenType: state.tokenType,

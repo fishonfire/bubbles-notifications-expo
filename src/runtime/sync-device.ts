@@ -1,4 +1,7 @@
-import { syncBubblesDevice } from '../api/device-client';
+import {
+  syncBubblesDevice,
+  updateBubblesDeviceAttributes,
+} from '../api/device-client';
 import {
   storeApiBaseUrl,
   storeAppKey,
@@ -11,6 +14,7 @@ import {
   type DeviceRegistrationState,
   type NativeTokenType,
 } from './transport';
+import { collectBubblesDeviceAttributes } from './device-attributes';
 
 interface BaseSyncDeviceOptions {
   appId: string | number;
@@ -133,6 +137,19 @@ export async function syncDeviceRegistrationState(
     const nextDeviceId = syncResult.deviceId ?? options.deviceId;
 
     storeDeviceId(nextDeviceId);
+
+    if (nextDeviceId) {
+      const attributes = await collectBubblesDeviceAttributes();
+
+      if (Object.keys(attributes).length > 0) {
+        await updateBubblesDeviceAttributes({
+          apiBaseUrl,
+          appKey,
+          deviceId: nextDeviceId,
+          attributes,
+        });
+      }
+    }
 
     return {
       ...snapshot,
