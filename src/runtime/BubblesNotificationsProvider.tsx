@@ -54,6 +54,7 @@ export function BubblesNotificationsProvider(
   const { enqueueOperation, isMountedRef } =
     useBubblesRuntimeOperationQueue(setState);
   const lastAutomaticSyncSignatureRef = useRef<string | null>(null);
+  const currentDeviceIdRef = useRef<string | null>(state.deviceId);
   const previousUserIdRef = useRef<string | null>(normalizedUserId);
 
   function buildAutomaticSyncSignature(deviceId: string): string {
@@ -74,6 +75,10 @@ export function BubblesNotificationsProvider(
       clearBubblesForegroundPresentation();
     };
   }, []);
+
+  useEffect(() => {
+    currentDeviceIdRef.current = state.deviceId;
+  }, [state.deviceId]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -162,6 +167,7 @@ export function BubblesNotificationsProvider(
         deviceId: storedDeviceId,
       });
 
+      currentDeviceIdRef.current = result.deviceId;
       return getRuntimeStateUpdate(result);
     });
   }, [
@@ -196,9 +202,11 @@ export function BubblesNotificationsProvider(
         userId: normalizedUserId,
         aliasing,
         appVersion,
-        deviceId: state.deviceId,
+        deviceId: currentDeviceIdRef.current,
         registrationOptions: options,
       });
+
+      currentDeviceIdRef.current = result.deviceId;
 
       if (result.deviceId !== null) {
         lastAutomaticSyncSignatureRef.current = buildAutomaticSyncSignature(
@@ -223,7 +231,9 @@ export function BubblesNotificationsProvider(
         );
       }
 
-      if (state.deviceId === null) {
+      const deviceId = currentDeviceIdRef.current;
+
+      if (deviceId === null) {
         failWithBubblesError(
           '"addDeviceAttribute()" requires a backend "deviceId" before attributes can be synced.',
         );
@@ -232,7 +242,7 @@ export function BubblesNotificationsProvider(
       await updateBubblesDeviceAttributes({
         apiBaseUrl,
         appKey,
-        deviceId: state.deviceId,
+        deviceId,
         attributes: {
           [attributeName]: value,
         },

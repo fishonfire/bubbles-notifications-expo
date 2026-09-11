@@ -191,6 +191,7 @@ test('updateBubblesDeviceAttributes posts normalized attributes with X-App-Key',
       },
       app: {
         nativeApplicationVersion: '1.2.3',
+        flags: [true, null, { rollout: 25 }],
       },
     },
     requestOptions: {
@@ -213,6 +214,7 @@ test('updateBubblesDeviceAttributes posts normalized attributes with X-App-Key',
         },
         app: {
           nativeApplicationVersion: '1.2.3',
+          flags: [true, null, { rollout: 25 }],
         },
       },
       requestOptions: {
@@ -239,6 +241,70 @@ test('updateBubblesDeviceAttributes rejects non-object attributes', async () => 
       }),
     /"attributes" must be an object\./,
   );
+});
+
+test('updateBubblesDeviceAttributes rejects nested non-JSON-compatible attributes', async () => {
+  const cyclicAttributes: Record<string, unknown> = {};
+  cyclicAttributes.self = cyclicAttributes;
+
+  const symbolKeyedAttributes = {
+    visible: 'value',
+    [Symbol('hidden')]: 'hidden',
+  };
+
+  const invalidAttributes = [
+    {
+      attributes: { plan: undefined },
+      message: /attributes\.plan must be a JSON-compatible value\./,
+    },
+    {
+      attributes: { score: Number.NaN },
+      message: /attributes\.score must be a finite number\./,
+    },
+    {
+      attributes: { score: Infinity },
+      message: /attributes\.score must be a finite number\./,
+    },
+    {
+      attributes: { count: 1n },
+      message: /attributes\.count must be a JSON-compatible value\./,
+    },
+    {
+      attributes: { compute: () => 'pro' },
+      message: /attributes\.compute must be a JSON-compatible value\./,
+    },
+    {
+      attributes: { createdAt: new Date() },
+      message: /attributes\.createdAt must be a JSON-compatible object\./,
+    },
+    {
+      attributes: { nested: [undefined] },
+      message: /attributes\.nested\[0\] must be a JSON-compatible value\./,
+    },
+    {
+      attributes: symbolKeyedAttributes,
+      message: /attributes must not contain symbol keys\./,
+    },
+    {
+      attributes: cyclicAttributes,
+      message: /attributes\.self must not contain cycles\./,
+    },
+  ];
+
+  for (const { attributes, message } of invalidAttributes) {
+    await assert.rejects(
+      () =>
+        updateBubblesDeviceAttributes({
+          apiBaseUrl: 'https://api.example.com',
+          appKey: 'app-key-1',
+          deviceId: 'device-1',
+          attributes: attributes as never,
+        }),
+      message,
+    );
+  }
+
+  assert.equal(deviceClientCalls.attributes.length, 0);
 });
 
 test('syncBubblesDevice maps invalid app key responses to an app authentication error', async () => {

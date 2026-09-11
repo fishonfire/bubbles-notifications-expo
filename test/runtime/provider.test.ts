@@ -538,6 +538,34 @@ test('BubblesNotificationsProvider addDeviceAttribute posts a single custom attr
   renderer.unmount();
 });
 
+test('BubblesNotificationsProvider addDeviceAttribute uses the device id from a prior queued registration', async () => {
+  storedState.deviceId = null;
+  const renderer = await renderProvider({
+    ready: true,
+    userId: 'user-123',
+  });
+  const contextValue = getContextValue(renderer);
+
+  await contextValue.registerDevice();
+  await contextValue.addDeviceAttribute('plan', 'pro');
+  await renderer.flush();
+
+  assert.equal(registerCalls[0]?.deviceId, null);
+  assert.deepEqual(attributeCalls, [
+    {
+      apiBaseUrl: 'https://api.example.com',
+      appKey: 'app-key-123',
+      deviceId: 'registered-device',
+      attributes: {
+        plan: 'pro',
+      },
+    },
+  ]);
+  assert.equal(getContextValue(renderer).error, null);
+
+  renderer.unmount();
+});
+
 test('BubblesNotificationsProvider addDeviceAttribute rejects before a device id is available', async () => {
   storedState.deviceId = null;
   const renderer = await renderProvider({

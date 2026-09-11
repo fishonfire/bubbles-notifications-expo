@@ -161,11 +161,102 @@ function throwAppAuthenticationError(error: unknown): never {
 function normalizeDeviceAttributes(
   value: BubblesDeviceAttributes,
 ): BubblesDeviceAttributes {
+  return normalizeDeviceAttributeObject(value, 'attributes', new WeakSet());
+}
+
+function normalizeDeviceAttributeValue(
+  value: unknown,
+  sourceDescription: string,
+  seenValues: WeakSet<object>,
+): BubblesDeviceAttributeValue {
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value === 'string' || typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      failWithBubblesError(`${sourceDescription} must be a finite number.`);
+    }
+
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    if (seenValues.has(value)) {
+      failWithBubblesError(`${sourceDescription} must not contain cycles.`);
+    }
+
+    seenValues.add(value);
+    const normalizedValue = value.map((entry, index) =>
+      normalizeDeviceAttributeValue(
+        entry,
+        `${sourceDescription}[${index}]`,
+        seenValues,
+      ),
+    );
+    seenValues.delete(value);
+
+    return normalizedValue;
+  }
+
+  if (isPlainObject(value)) {
+    return normalizeDeviceAttributeObject(
+      value,
+      sourceDescription,
+      seenValues,
+    );
+  }
+
+  failWithBubblesError(
+    `${sourceDescription} must be a JSON-compatible value.`,
+  );
+}
+
+function normalizeDeviceAttributeObject(
+  value: unknown,
+  sourceDescription: string,
+  seenValues: WeakSet<object>,
+): BubblesDeviceAttributes {
   if (!isPlainObject(value)) {
     failWithBubblesError('"attributes" must be an object.');
   }
 
-  return value;
+  const valuePrototype = Object.getPrototypeOf(value);
+
+  if (valuePrototype !== Object.prototype && valuePrototype !== null) {
+    failWithBubblesError(
+      `${sourceDescription} must be a JSON-compatible object.`,
+    );
+  }
+
+  if (Object.getOwnPropertySymbols(value).length > 0) {
+    failWithBubblesError(
+      `${sourceDescription} must not contain symbol keys.`,
+    );
+  }
+
+  if (seenValues.has(value)) {
+    failWithBubblesError(`${sourceDescription} must not contain cycles.`);
+  }
+
+  seenValues.add(value);
+  const normalizedValue: BubblesDeviceAttributes = {};
+
+  for (const [attributeName, attributeValue] of Object.entries(value)) {
+    normalizedValue[attributeName] = normalizeDeviceAttributeValue(
+      attributeValue,
+      `${sourceDescription}.${attributeName}`,
+      seenValues,
+    );
+  }
+
+  seenValues.delete(value);
+
+  return normalizedValue;
 }
 
 export function extractDeviceIdFromDeviceResponse(

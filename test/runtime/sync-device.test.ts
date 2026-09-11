@@ -24,6 +24,24 @@ const syncState: {
     response: { id: 'created-device-id' },
   }),
 };
+const attributeCollectionState: {
+  implementation: () => Promise<Record<string, unknown>>;
+} = {
+  implementation: async () => ({
+    device: {
+      manufacturer: 'Apple',
+      deviceType: 'phone',
+    },
+    app: {
+      applicationId: 'com.example.app',
+    },
+  }),
+};
+const attributeState: {
+  implementation: (options: Record<string, unknown>) => Promise<void>;
+} = {
+  implementation: async () => undefined,
+};
 const tokenState: {
   registrationState: DeviceRegistrationState;
 } = {
@@ -49,19 +67,13 @@ vi.doMock('../../src/api/device-client.ts', () => ({
   },
   updateBubblesDeviceAttributes: async (options: Record<string, unknown>) => {
     attributeCalls.push(options);
+    await attributeState.implementation(options);
   },
 }));
 
 vi.doMock('../../src/runtime/device-attributes.ts', () => ({
-  collectBubblesDeviceAttributes: async () => ({
-    device: {
-      manufacturer: 'Apple',
-      deviceType: 'phone',
-    },
-    app: {
-      applicationId: 'com.example.app',
-    },
-  }),
+  collectBubblesDeviceAttributes: async () =>
+    attributeCollectionState.implementation(),
 }));
 
 vi.doMock('../../src/storage/device-state.ts', () => ({
@@ -125,6 +137,16 @@ beforeEach(() => {
     deviceId: 'created-device-id',
     response: { id: 'created-device-id' },
   });
+  attributeCollectionState.implementation = async () => ({
+    device: {
+      manufacturer: 'Apple',
+      deviceType: 'phone',
+    },
+    app: {
+      applicationId: 'com.example.app',
+    },
+  });
+  attributeState.implementation = async () => undefined;
   installationState.installationId = 'fid-123';
   tokenState.registrationState = {
     platform: 'android',
@@ -274,6 +296,58 @@ test('syncDeviceRegistrationState wraps sync failures with a snapshot-rich error
 
   assert.deepEqual(storedApiBaseUrls, ['https://api.example.com']);
   assert.deepEqual(storedDeviceIds, []);
+});
+
+test('syncDeviceRegistrationState ignores attribute collection failures after registration succeeds', async () => {
+  attributeCollectionState.implementation = async () => {
+    throw new Error('attribute collection failed');
+  };
+
+  const result = await syncDeviceRegistrationState({
+    appId: 'app-attributes',
+    appKey: 'app-key-attributes',
+    apiBaseUrl: 'https://api.example.com',
+    userId: 'user-attributes',
+    deviceId: null,
+    registrationState: tokenState.registrationState,
+  });
+
+  assert.deepEqual(storedDeviceIds, ['created-device-id']);
+  assert.deepEqual(attributeCalls, []);
+  assert.deepEqual(result, {
+    action: 'created',
+    deviceId: 'created-device-id',
+    pushToken: 'token-123',
+    tokenType: 'fcm',
+    permissionStatus: 'granted',
+    notificationsEnabled: true,
+  });
+});
+
+test('syncDeviceRegistrationState ignores attribute update failures after registration succeeds', async () => {
+  attributeState.implementation = async () => {
+    throw new Error('attribute update failed');
+  };
+
+  const result = await syncDeviceRegistrationState({
+    appId: 'app-attributes',
+    appKey: 'app-key-attributes',
+    apiBaseUrl: 'https://api.example.com',
+    userId: 'user-attributes',
+    deviceId: null,
+    registrationState: tokenState.registrationState,
+  });
+
+  assert.deepEqual(storedDeviceIds, ['created-device-id']);
+  assert.equal(attributeCalls.length, 1);
+  assert.deepEqual(result, {
+    action: 'created',
+    deviceId: 'created-device-id',
+    pushToken: 'token-123',
+    tokenType: 'fcm',
+    permissionStatus: 'granted',
+    notificationsEnabled: true,
+  });
 });
 
 test('syncExistingBubblesDevice uses non-prompting registration state lookup', async () => {

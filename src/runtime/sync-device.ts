@@ -104,6 +104,27 @@ function buildRuntimeSnapshot(
   };
 }
 
+async function syncBubblesDeviceAttributesBestEffort(
+  apiBaseUrl: string,
+  appKey: string,
+  deviceId: string,
+): Promise<void> {
+  try {
+    const attributes = await collectBubblesDeviceAttributes();
+
+    if (Object.keys(attributes).length > 0) {
+      await updateBubblesDeviceAttributes({
+        apiBaseUrl,
+        appKey,
+        deviceId,
+        attributes,
+      });
+    }
+  } catch {
+    // Device attribute delivery is opportunistic and must not invalidate registration.
+  }
+}
+
 export async function syncDeviceRegistrationState(
   options: SyncDeviceRegistrationStateOptions,
 ): Promise<SyncBubblesNotificationsDeviceResult> {
@@ -139,16 +160,11 @@ export async function syncDeviceRegistrationState(
     storeDeviceId(nextDeviceId);
 
     if (nextDeviceId) {
-      const attributes = await collectBubblesDeviceAttributes();
-
-      if (Object.keys(attributes).length > 0) {
-        await updateBubblesDeviceAttributes({
-          apiBaseUrl,
-          appKey,
-          deviceId: nextDeviceId,
-          attributes,
-        });
-      }
+      await syncBubblesDeviceAttributesBestEffort(
+        apiBaseUrl,
+        appKey,
+        nextDeviceId,
+      );
     }
 
     return {
