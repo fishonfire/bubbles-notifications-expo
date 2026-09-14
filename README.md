@@ -166,6 +166,9 @@ export function EnableNotificationsButton() {
 
 If your app already requested notification permissions, call `registerDevice({ requestPermissions: false })`.
 
+## Example application
+A example application can be found at: https://github.com/fishonfire/bubbles-notifications-expo-example
+
 ## Contributors
 - Simon de la Court (https://github.com/simondelacourt)
 - Jan Deen (https://github.com/Jan-F15H)
