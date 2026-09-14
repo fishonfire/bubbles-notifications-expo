@@ -27,7 +27,7 @@ import {
 export type { SupportedPlatform } from '../internal/platform';
 export type NativeTokenType = 'fcm';
 
-export interface GetDeviceTokenOptions extends GetNotificationPermissionsOptions {}
+export type GetDeviceTokenOptions = GetNotificationPermissionsOptions;
 
 export interface DeviceTokenResult {
   platform: SupportedPlatform;
