@@ -165,3 +165,13 @@ export function EnableNotificationsButton() {
 `useBubblesNotifications()` also exposes `deviceId`, `pushToken`, `permissionStatus`, `notificationsEnabled`, `tokenType`, and `error`.
 
 If your app already requested notification permissions, call `registerDevice({ requestPermissions: false })`.
+
+## Contributors
+- Simon de la Court (https://github.com/simondelacourt)
+- Jan Deen (https://github.com/Jan-F15H)
+- Menno Jongejan (https://github.com/mennolpFoF)
+
+## Copyright and Licence
+Copyright (c) 2026, Fish on Fire.
+
+Source code is licensed under the [`GPL License`](https://github.com/fishonfire/bubbles-notifications-expo/blob/develop/LICENSE).
