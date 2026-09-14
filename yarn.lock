@@ -1660,8 +1660,10 @@
   resolved "https://registry.npmjs.org/@firebase/webchannel-wrapper/-/webchannel-wrapper-1.0.6.tgz"
   integrity sha512-Vr/Mqu79dMwGRAyGbJ4uN4+BtXB3/mRTdzetD1daWNeG8QaWuzhhbG77GltO5c0yYmYls8i250iX73624GJd7Q==
 
-"@fishonfire/bubbles-js@file:../bubbles-notifications-js":
+"@fishonfire/bubbles-js@0.1.0":
   version "0.1.0"
+  resolved "https://registry.yarnpkg.com/@fishonfire/bubbles-js/-/bubbles-js-0.1.0.tgz#37f10fa0c29f14c59c785976185c4384c6d59c97"
+  integrity sha512-y504ZE9o4NP1aV29nUSOtR/g+xwhn7vpnvlUjrv7Aw8Q/5vtHBvvbA3Xy7RXclqvDMOfP0TIiI29ueOjtLk07w==
 
 "@grpc/grpc-js@~1.9.0":
   version "1.9.16"
