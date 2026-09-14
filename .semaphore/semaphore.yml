@@ -1,0 +1,50 @@
+version: v1.0
+name: Expo Package Checks
+
+agent:
+  machine:
+    type: e1-standard-2
+    os_image: ubuntu2404
+  containers:
+    - name: main
+      image: registry.semaphoreci.com/node:20
+
+fail_fast:
+  stop:
+    when: true
+
+auto_cancel:
+  running:
+    when: branch != 'main'
+
+blocks:
+  - name: Install Dependencies
+    dependencies: []
+    task:
+      jobs:
+        - name: npm ci
+          commands:
+            - checkout
+            - npm ci --ignore-scripts
+
+  - name: Lint
+    dependencies:
+      - Install Dependencies
+    task:
+      jobs:
+        - name: Expo lint
+          commands:
+            - checkout
+            - npm ci --ignore-scripts
+            - npm run lint
+
+  - name: TypeScript
+    dependencies:
+      - Install Dependencies
+    task:
+      jobs:
+        - name: Type check
+          commands:
+            - checkout
+            - npm ci --ignore-scripts
+            - npm run typecheck
