@@ -200,7 +200,7 @@ export function readStoredDeviceState(): StoredDeviceState {
 
   try {
     parsedState = JSON.parse(rawState);
-  } catch (error) {
+  } catch {
     failWithBubblesError(
       `Stored device state at "${storedDeviceStateFile.uri}" is not valid JSON.`,
     );

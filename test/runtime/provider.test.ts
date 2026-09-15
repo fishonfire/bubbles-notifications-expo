@@ -57,6 +57,10 @@ class HookRenderer<Props> {
   private needsRender = false;
   private readonly stateSlots: unknown[] = [];
   private readonly refSlots: Array<{ current: unknown }> = [];
+  private readonly memoSlots: Array<{
+    deps: unknown[] | undefined;
+    value: unknown;
+  }> = [];
   private readonly effectSlots: Array<{
     deps: unknown[] | undefined;
     effect: () => Cleanup;
@@ -115,6 +119,31 @@ class HookRenderer<Props> {
 
     this.hookIndex += 1;
     return this.refSlots[slotIndex] as { current: Value };
+  }
+
+  useMemo<Value>(factory: () => Value, deps?: unknown[]): Value {
+    const slotIndex = this.hookIndex;
+    const previousMemo = this.memoSlots[slotIndex];
+
+    if (
+      previousMemo === undefined ||
+      !areHookDependenciesEqual(previousMemo.deps, deps)
+    ) {
+      this.memoSlots[slotIndex] = {
+        deps,
+        value: factory(),
+      };
+    }
+
+    this.hookIndex += 1;
+    return this.memoSlots[slotIndex].value as Value;
+  }
+
+  useCallback<Callback extends (...args: any[]) => unknown>(
+    callback: Callback,
+    deps?: unknown[],
+  ): Callback {
+    return this.useMemo(() => callback, deps);
   }
 
   useEffect(
@@ -277,6 +306,23 @@ vi.doMock('react', () => ({
     }
 
     activeRenderer.useEffect(effect, deps);
+  },
+  useCallback<Callback extends (...args: any[]) => unknown>(
+    callback: Callback,
+    deps?: unknown[],
+  ) {
+    if (!activeRenderer) {
+      throw new Error('useCallback called without an active renderer.');
+    }
+
+    return activeRenderer.useCallback(callback, deps);
+  },
+  useMemo<Value>(factory: () => Value, deps?: unknown[]) {
+    if (!activeRenderer) {
+      throw new Error('useMemo called without an active renderer.');
+    }
+
+    return activeRenderer.useMemo(factory, deps);
   },
   useRef<Value>(initialValue: Value) {
     if (!activeRenderer) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { failWithBubblesError } from '../internal/errors';
 import { getRequiredNonEmptyString } from '../internal/validation';
@@ -57,7 +57,7 @@ export function BubblesNotificationsProvider(
   const currentDeviceIdRef = useRef<string | null>(state.deviceId);
   const previousUserIdRef = useRef<string | null>(normalizedUserId);
 
-  function buildAutomaticSyncSignature(deviceId: string): string {
+  const buildAutomaticSyncSignature = useCallback((deviceId: string): string => {
     return getAutomaticSyncSignature({
       appId,
       appKey,
@@ -67,14 +67,21 @@ export function BubblesNotificationsProvider(
       appVersion,
       deviceId,
     });
-  }
+  }, [
+    appId,
+    appKey,
+    apiBaseUrl,
+    normalizedUserId,
+    aliasing,
+    appVersion,
+  ]);
 
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
       clearBubblesForegroundPresentation();
     };
-  }, []);
+  }, [isMountedRef]);
 
   useEffect(() => {
     currentDeviceIdRef.current = state.deviceId;
@@ -101,16 +108,11 @@ export function BubblesNotificationsProvider(
     return () => {
       isCancelled = true;
     };
-  }, [apiBaseUrl, appKey]);
+  }, [apiBaseUrl, appKey, isMountedRef]);
 
   useEffect(() => {
     applyBubblesForegroundPresentation(foregroundPresentation);
-  }, [
-    foregroundPresentation?.shouldPlaySound,
-    foregroundPresentation?.shouldSetBadge,
-    foregroundPresentation?.shouldShowBanner,
-    foregroundPresentation?.shouldShowList,
-  ]);
+  }, [foregroundPresentation]);
 
   useEffect(() => {
     return observeBubblesForegroundRemoteMessages();
@@ -139,7 +141,7 @@ export function BubblesNotificationsProvider(
     }
 
     previousUserIdRef.current = normalizedUserId;
-  }, [normalizedUserId, onLogout, state.deviceId]);
+  }, [enqueueOperation, normalizedUserId, onLogout, state.deviceId]);
 
   useEffect(() => {
     if (!ready || normalizedUserId === null || state.deviceId === null) {
@@ -179,6 +181,8 @@ export function BubblesNotificationsProvider(
     apiBaseUrl,
     aliasing,
     appVersion,
+    buildAutomaticSyncSignature,
+    enqueueOperation,
   ]);
 
   function registerDevice(options?: RegisterDeviceOptions) {

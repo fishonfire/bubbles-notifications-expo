@@ -1,4 +1,9 @@
-import { useRef, type Dispatch, type SetStateAction } from 'react';
+import {
+  useCallback,
+  useRef,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 
 import { BubblesNotificationsSyncError } from './sync-device';
 import {
@@ -17,9 +22,9 @@ export function useBubblesRuntimeOperationQueue(
   const pendingOperationsRef = useRef(0);
   const operationQueueRef = useRef<Promise<void>>(Promise.resolve());
 
-  function enqueueOperation(
+  const enqueueOperation = useCallback((
     operation: RuntimeOperation,
-  ): Promise<void> {
+  ): Promise<void> => {
     pendingOperationsRef.current += 1;
 
     setState((currentState) => ({
@@ -72,7 +77,7 @@ export function useBubblesRuntimeOperationQueue(
         throw normalizedError;
       },
     );
-  }
+  }, [setState]);
 
   return {
     enqueueOperation,
