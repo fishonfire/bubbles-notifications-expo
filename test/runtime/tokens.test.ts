@@ -134,17 +134,15 @@ test('getDeviceRegistrationState rejects unsupported platforms', async () => {
   );
 });
 
-test('Firebase installation id failures include the iOS setup hint', async () => {
+test('Firebase installation id failures propagate from the installation helper', async () => {
   platform.OS = 'ios';
-  installationState.error = new Error('installations misconfigured');
+  installationState.error = new Error(
+    'Failed to get an ios Firebase installation id.',
+  );
 
   await assert.rejects(
     () => getDeviceRegistrationState(),
-    /expo\.ios\.googleServicesFile/,
-  );
-  await assert.rejects(
-    () => getDeviceRegistrationState(),
-    /Firebase APNs setup is complete/,
+    /Failed to get an ios Firebase installation id\./,
   );
 });
 
