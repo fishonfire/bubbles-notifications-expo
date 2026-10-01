@@ -47,8 +47,8 @@ const tokenState: {
 } = {
   registrationState: {
     platform: 'android',
-    tokenType: 'fcm',
-    token: 'token-123',
+    tokenType: 'fid',
+    token: 'fid-123',
     permissionStatus: 'granted',
     notificationsEnabled: true,
   },
@@ -147,11 +147,10 @@ beforeEach(() => {
     },
   });
   attributeState.implementation = async () => undefined;
-  installationState.installationId = 'fid-123';
   tokenState.registrationState = {
     platform: 'android',
-    tokenType: 'fcm',
-    token: 'token-123',
+    tokenType: 'fid',
+    token: 'fid-123',
     permissionStatus: 'granted',
     notificationsEnabled: true,
   };
@@ -169,7 +168,7 @@ test('syncDeviceRegistrationState stores base URL, resolves installation id, and
     registrationState: tokenState.registrationState,
   });
 
-  assert.deepEqual(installationCalls, ['android']);
+  assert.deepEqual(installationCalls, []);
   assert.deepEqual(storedApiBaseUrls, ['https://api.example.com']);
   assert.deepEqual(storedAppKeys, ['app-key-1']);
   assert.deepEqual(storedDeviceIds, ['created-device-id']);
@@ -199,7 +198,7 @@ test('syncDeviceRegistrationState stores base URL, resolves installation id, and
       appVersion: '1.0.0',
       deviceId: null,
       platform: 'android',
-      pushToken: 'token-123',
+      pushToken: 'fid-123',
       fid: 'fid-123',
       notificationsEnabled: true,
     },
@@ -207,8 +206,8 @@ test('syncDeviceRegistrationState stores base URL, resolves installation id, and
   assert.deepEqual(result, {
     action: 'created',
     deviceId: 'created-device-id',
-    pushToken: 'token-123',
-    tokenType: 'fcm',
+    pushToken: 'fid-123',
+    tokenType: 'fid',
     permissionStatus: 'granted',
     notificationsEnabled: true,
   });
@@ -285,8 +284,8 @@ test('syncDeviceRegistrationState wraps sync failures with a snapshot-rich error
       assert.equal(error.message, 'sync failed');
       assert.deepEqual(error.snapshot, {
         deviceId: 'device-789',
-        pushToken: 'token-123',
-        tokenType: 'fcm',
+        pushToken: 'fid-123',
+        tokenType: 'fid',
         permissionStatus: 'granted',
         notificationsEnabled: true,
       });
@@ -317,8 +316,8 @@ test('syncDeviceRegistrationState ignores attribute collection failures after re
   assert.deepEqual(result, {
     action: 'created',
     deviceId: 'created-device-id',
-    pushToken: 'token-123',
-    tokenType: 'fcm',
+    pushToken: 'fid-123',
+    tokenType: 'fid',
     permissionStatus: 'granted',
     notificationsEnabled: true,
   });
@@ -343,8 +342,8 @@ test('syncDeviceRegistrationState ignores attribute update failures after regist
   assert.deepEqual(result, {
     action: 'created',
     deviceId: 'created-device-id',
-    pushToken: 'token-123',
-    tokenType: 'fcm',
+    pushToken: 'fid-123',
+    tokenType: 'fid',
     permissionStatus: 'granted',
     notificationsEnabled: true,
   });
