@@ -14,7 +14,33 @@ const FCM_DEFAULT_CHANNEL =
 const FCM_DEFAULT_COLOR =
   'com.google.firebase.messaging.default_notification_color';
 
+const FCM_INSTALLATION_ID_ENABLED =
+  'firebase_messaging_installation_id_enabled';
+
+const RN_FIREBASE_MESSAGING_SERVICE =
+  'io.invertase.firebase.messaging.ReactNativeFirebaseMessagingService';
+
+const BUBBLES_FIREBASE_MESSAGING_SERVICE =
+  '.BubblesFirebaseMessagingService';
+
+const BUBBLES_FIREBASE_MESSAGING_REGISTRAR =
+  '.BubblesFirebaseMessagingRegistrar';
+
 type ToolsReplaceValue = 'android:value' | 'android:resource';
+
+type ManifestProvider = {
+  $: {
+    'android:name': string;
+    'android:authorities': string;
+    'android:exported': 'true' | 'false';
+    'android:initOrder'?: string;
+  };
+};
+
+type ManifestApplicationWithProvider =
+  AndroidConfig.Manifest.ManifestApplication & {
+    provider?: ManifestProvider[];
+  };
 
 const withFirebaseMessagingManifest: ConfigPlugin<
   NormalizedBubblesNotificationsExpoPluginConfig
@@ -46,6 +72,18 @@ const withFirebaseMessagingManifest: ConfigPlugin<
       setToolsReplace(channel.$, 'android:value');
     }
 
+    AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+      application,
+      FCM_INSTALLATION_ID_ENABLED,
+      'true',
+      'value',
+    );
+
+    addBubblesFirebaseMessagingRegistrationEntries(
+      application,
+      getAndroidPackageName(config),
+    );
+
     // Expo only creates the FCM color metadata when a notification
     // color has actually been configured.
     if (options.androidNotificationColor) {
@@ -68,6 +106,63 @@ const withFirebaseMessagingManifest: ConfigPlugin<
     return config;
   });
 };
+
+function getAndroidPackageName(config: {
+  android?: {
+    package?: string;
+  };
+}): string {
+  const packageName = config.android?.package?.trim();
+
+  if (!packageName) {
+    throw new Error(
+      '[@fishonfire/bubbles-expo] "expo.android.package" is required to configure Android Firebase Messaging registration.',
+    );
+  }
+
+  return packageName;
+}
+
+function addBubblesFirebaseMessagingRegistrationEntries(
+  application: ManifestApplicationWithProvider,
+  packageName: string,
+): void {
+  application.service = application.service ?? [];
+  application.provider = application.provider ?? [];
+
+  removeManifestService(application, RN_FIREBASE_MESSAGING_SERVICE);
+  removeManifestService(application, BUBBLES_FIREBASE_MESSAGING_SERVICE);
+
+  upsertManifestProvider(application, {
+    $: {
+      'android:name': BUBBLES_FIREBASE_MESSAGING_REGISTRAR,
+      'android:authorities': `${packageName}.bubblesnotifications.fcmregistrar`,
+      'android:exported': 'false',
+      'android:initOrder': '100',
+    },
+  });
+}
+
+function removeManifestService(
+  application: AndroidConfig.Manifest.ManifestApplication,
+  serviceName: string,
+): void {
+  application.service = (application.service ?? []).filter(
+    item => item.$['android:name'] !== serviceName,
+  );
+}
+
+function upsertManifestProvider(
+  application: ManifestApplicationWithProvider,
+  provider: ManifestProvider,
+): void {
+  application.provider = [
+    ...(application.provider ?? []).filter(
+      item => item.$['android:name'] !== provider.$['android:name'],
+    ),
+    provider,
+  ];
+}
 
 function setToolsReplace(
   attributes: {

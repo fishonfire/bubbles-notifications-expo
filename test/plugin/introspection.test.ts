@@ -46,6 +46,17 @@ async function introspectPlugin(
                 'meta-data'?: Array<{
                   $: Record<string, string>;
                 }>;
+                provider?: Array<{
+                  $: Record<string, string>;
+                }>;
+                service?: Array<{
+                  $: Record<string, string>;
+                  'intent-filter'?: Array<{
+                    action?: Array<{
+                      $: Record<string, string>;
+                    }>;
+                  }>;
+                }>;
               }>;
             };
           };
@@ -72,6 +83,12 @@ function findMetaDataItem(
   return metaData.find((item) => item.$['android:name'] === name);
 }
 
+function getAndroidManifestApplication(
+  config: Awaited<ReturnType<typeof introspectPlugin>>,
+) {
+  return config._internal.modResults.android.manifest.manifest.application[0];
+}
+
 test('plugin introspection preserves the FCM default-channel metadata and replaces android:value', async () => {
   const config = await introspectPlugin({
     defaultChannelId: 'messages',
@@ -93,6 +110,54 @@ test('plugin introspection preserves the FCM default-channel metadata and replac
         'tools:replace': 'android:value',
       },
     },
+  );
+});
+
+test('plugin introspection configures Firebase installation id registration', async () => {
+  const config = await introspectPlugin();
+  const application = getAndroidManifestApplication(config);
+  const metaData = getAndroidManifestMetaData(config);
+
+  assert.deepEqual(
+    findMetaDataItem(
+      metaData,
+      'firebase_messaging_installation_id_enabled',
+    ),
+    {
+      $: {
+        'android:name': 'firebase_messaging_installation_id_enabled',
+        'android:value': 'true',
+      },
+    },
+  );
+  assert.deepEqual(
+    application.provider?.find(
+      item =>
+        item.$['android:name'] === '.BubblesFirebaseMessagingRegistrar',
+    ),
+    {
+      $: {
+        'android:name': '.BubblesFirebaseMessagingRegistrar',
+        'android:authorities':
+          'com.demo.app.bubblesnotifications.fcmregistrar',
+        'android:exported': 'false',
+        'android:initOrder': '100',
+      },
+    },
+  );
+  assert.equal(
+    application.service?.some(
+      item =>
+        item.$['android:name'] ===
+        'io.invertase.firebase.messaging.ReactNativeFirebaseMessagingService',
+    ),
+    false,
+  );
+  assert.equal(
+    application.service?.some(
+      item => item.$['android:name'] === '.BubblesFirebaseMessagingService',
+    ),
+    false,
   );
 });
 
