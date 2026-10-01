@@ -1,9 +1,3 @@
-import {
-  getMessaging,
-  getToken,
-  isDeviceRegisteredForRemoteMessages,
-  registerDeviceForRemoteMessages,
-} from '@react-native-firebase/messaging';
 import { Platform } from 'react-native';
 
 import {
@@ -17,15 +11,13 @@ import {
   type SupportedPlatform,
 } from '../internal/platform';
 import {
-  getRequiredNonEmptyStringFromSource,
-} from '../internal/validation';
-import {
   failWithBubblesError,
   getErrorMessage,
 } from '../internal/errors';
+import { getFirebaseInstallationId } from './installations';
 
 export type { SupportedPlatform } from '../internal/platform';
-export type NativeTokenType = 'fcm';
+export type NativeTokenType = 'fid';
 
 export type GetDeviceTokenOptions = GetNotificationPermissionsOptions;
 
@@ -43,31 +35,20 @@ export interface DeviceRegistrationState {
   notificationsEnabled: boolean;
 }
 
-async function getFirebaseMessagingToken(
+async function getFirebaseMessagingInstallationId(
   platform: SupportedPlatform,
 ): Promise<string> {
   try {
-    const messagingInstance = getMessaging();
-
-    if (!isDeviceRegisteredForRemoteMessages(messagingInstance)) {
-      await registerDeviceForRemoteMessages(messagingInstance);
-    }
-
-    const token = await getToken(messagingInstance);
-
-    return getRequiredNonEmptyStringFromSource(
-      token,
-      `${platform} FCM token from Firebase Messaging`,
-    );
+    return await getFirebaseInstallationId(platform);
   } catch (error) {
     const reason = getErrorMessage(error);
     const platformSpecificSetupHint =
       platform === 'ios'
         ? ' On iOS, also ensure Firebase APNs setup is complete and `expo.ios.googleServicesFile` is configured.'
-        : ' On Android, ensure `google-services.json` is configured and the native app has been rebuilt.';
+        : ' On Android, ensure `expo.android.googleServicesFile` is configured and the native app has been rebuilt.';
 
     failWithBubblesError(
-      `Failed to get a ${platform} FCM token from Firebase Messaging. Ensure "@react-native-firebase/app" and "@react-native-firebase/messaging" are installed, the Expo app includes the "@react-native-firebase/messaging" config plugin, and Firebase is configured for this platform.${platformSpecificSetupHint} Original error: ${reason}`,
+      `Failed to get a ${platform} Firebase installation id for push registration. Ensure "@react-native-firebase/app" and "@react-native-firebase/installations" are installed and Firebase is configured for this platform.${platformSpecificSetupHint} Original error: ${reason}`,
     );
   }
 }
@@ -90,11 +71,11 @@ export async function getDeviceRegistrationState(
     };
   }
 
-  const token = await getFirebaseMessagingToken(platform);
+  const token = await getFirebaseMessagingInstallationId(platform);
 
   return {
     platform,
-    tokenType: 'fcm',
+    tokenType: 'fid',
     token,
     permissionStatus,
     notificationsEnabled: true,
@@ -112,7 +93,7 @@ export async function getDeviceToken(
 
   return {
     platform: registrationState.platform,
-    tokenType: 'fcm',
+    tokenType: 'fid',
     token: registrationState.token,
   };
 }

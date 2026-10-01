@@ -21,20 +21,11 @@ const permissionState = {
   description: 'granted',
   granted: true,
 };
-const messagingCalls = {
-  getMessaging: 0,
-  isDeviceRegisteredForRemoteMessages: 0,
-  registerDeviceForRemoteMessages: 0,
-  getToken: 0,
-};
-const messagingState = {
-  token: 'token-123' as unknown,
+const installationCalls: string[] = [];
+const installationState = {
+  installationId: 'fid-123',
   error: null as unknown,
 };
-const isDeviceRegisteredState = {
-  value: false,
-};
-const messagingInstance = { mock: true };
 
 vi.doMock('react-native', () => ({
   Platform: platform,
@@ -51,27 +42,15 @@ vi.doMock('../../src/runtime/permissions.ts', () => ({
   isNotificationPermissionGranted: () => permissionState.granted,
 }));
 
-vi.doMock('@react-native-firebase/messaging', () => ({
-  getMessaging: () => {
-    messagingCalls.getMessaging += 1;
-    return messagingInstance;
-  },
-  isDeviceRegisteredForRemoteMessages: () => {
-    messagingCalls.isDeviceRegisteredForRemoteMessages += 1;
-    return isDeviceRegisteredState.value;
-  },
-  registerDeviceForRemoteMessages: async () => {
-    messagingCalls.registerDeviceForRemoteMessages += 1;
-    isDeviceRegisteredState.value = true;
-  },
-  getToken: async () => {
-    messagingCalls.getToken += 1;
+vi.doMock('../../src/runtime/installations.ts', () => ({
+  getFirebaseInstallationId: async (requestedPlatform: string) => {
+    installationCalls.push(requestedPlatform);
 
-    if (messagingState.error) {
-      throw messagingState.error;
+    if (installationState.error) {
+      throw installationState.error;
     }
 
-    return messagingState.token;
+    return installationState.installationId;
   },
 }));
 
@@ -90,13 +69,9 @@ beforeEach(() => {
   };
   permissionState.description = 'granted';
   permissionState.granted = true;
-  messagingCalls.getMessaging = 0;
-  messagingCalls.isDeviceRegisteredForRemoteMessages = 0;
-  messagingCalls.registerDeviceForRemoteMessages = 0;
-  messagingCalls.getToken = 0;
-  isDeviceRegisteredState.value = false;
-  messagingState.token = 'token-123';
-  messagingState.error = null;
+  installationCalls.length = 0;
+  installationState.installationId = 'fid-123';
+  installationState.error = null;
 });
 
 test('getDeviceRegistrationState returns a disabled snapshot when permission is denied', async () => {
@@ -119,24 +94,21 @@ test('getDeviceRegistrationState returns a disabled snapshot when permission is 
     permissionStatus: 'denied',
     notificationsEnabled: false,
   });
-  assert.equal(messagingCalls.getMessaging, 0);
+  assert.deepEqual(installationCalls, []);
 });
 
-test('getDeviceRegistrationState registers remote messages and returns the FCM token', async () => {
+test('getDeviceRegistrationState returns the Firebase installation id as the registration token', async () => {
   const result = await getDeviceRegistrationState();
 
-  assert.equal(messagingCalls.getMessaging, 1);
-  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 1);
-  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 1);
-  assert.equal(messagingCalls.getToken, 1);
+  assert.deepEqual(installationCalls, ['android']);
   assert.deepEqual(result, {
     platform: 'android',
-    tokenType: 'fcm',
-    token: 'token-123',
+    tokenType: 'fid',
+    token: 'fid-123',
     permissionStatus: 'granted',
     notificationsEnabled: true,
   });
-  assert.equal(await getFCMToken(), 'token-123');
+  assert.equal(await getFCMToken(), 'fid-123');
 });
 
 test('getDeviceToken rejects when notification permission is not granted', async () => {
@@ -162,9 +134,9 @@ test('getDeviceRegistrationState rejects unsupported platforms', async () => {
   );
 });
 
-test('Firebase token failures include the iOS setup hint', async () => {
+test('Firebase installation id failures include the iOS setup hint', async () => {
   platform.OS = 'ios';
-  messagingState.error = new Error('messaging misconfigured');
+  installationState.error = new Error('installations misconfigured');
 
   await assert.rejects(
     () => getDeviceRegistrationState(),
@@ -176,11 +148,13 @@ test('Firebase token failures include the iOS setup hint', async () => {
   );
 });
 
-test('empty Firebase tokens are rejected with a token-source-specific error', async () => {
-  messagingState.token = '   ';
+test('empty Firebase installation ids are rejected with a token-source-specific error', async () => {
+  installationState.error = new Error(
+    'android Firebase installation id from Firebase Installations must not be empty.',
+  );
 
   await assert.rejects(
     () => getDeviceRegistrationState(),
-    /android FCM token from Firebase Messaging must not be empty\./,
+    /android Firebase installation id from Firebase Installations must not be empty\./,
   );
 });

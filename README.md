@@ -70,6 +70,8 @@ Plugin options:
 
 For Android remote display, backend payloads must use the same `android.notification.channel_id` as `defaultChannelId`. The plugin writes Firebase's default-channel manifest metadata, and the package creates the actual Android notification channel when `BubblesNotificationsProvider`, `getNotificationPermissions()`, or `ensureDefaultNotificationChannel()` runs. On a fresh install, the app must be opened at least once before remote notifications can reliably use this configured channel; otherwise Android/Firebase may fall back to its own default behavior before JavaScript has created the channel.
 
+Device registration uses the Firebase Installation ID (FID) as the push registration identifier. The package does not call Firebase Messaging's deprecated `getToken()` path for Bubbles device sync; the same FID value is sent as both `push_token` and `fid`.
+
 ## Background registration
 
 Register the package-owned background notification handlers once from your app entrypoint:
@@ -162,7 +164,7 @@ export function EnableNotificationsButton() {
 }
 ```
 
-`useBubblesNotifications()` also exposes `addDeviceAttribute`, `deviceId`, `pushToken`, `permissionStatus`, `notificationsEnabled`, `tokenType`, and `error`.
+`useBubblesNotifications()` also exposes `addDeviceAttribute`, `deviceId`, `pushToken`, `permissionStatus`, `notificationsEnabled`, `tokenType`, and `error`. When notifications are enabled, `pushToken` is the Firebase Installation ID and `tokenType` is `"fid"`.
 
 If your app already requested notification permissions, call `registerDevice({ requestPermissions: false })`.
 

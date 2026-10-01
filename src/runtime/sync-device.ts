@@ -10,7 +10,6 @@ import {
 
 import {
   getBubblesDeviceRegistrationState,
-  getBubblesInstallationId,
   type DeviceRegistrationState,
   type NativeTokenType,
 } from './transport';
@@ -140,7 +139,7 @@ export async function syncDeviceRegistrationState(
 
   try {
     const installationId = options.registrationState.notificationsEnabled
-      ? await getBubblesInstallationId(options.registrationState.platform)
+      ? options.registrationState.token
       : null;
     const syncResult = await syncBubblesDevice({
       apiBaseUrl,
