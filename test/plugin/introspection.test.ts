@@ -113,8 +113,31 @@ test('plugin introspection preserves the FCM default-channel metadata and replac
   );
 });
 
-test('plugin introspection configures Firebase installation id registration', async () => {
+test('plugin introspection leaves Firebase installation id registration disabled by default', async () => {
   const config = await introspectPlugin();
+  const application = getAndroidManifestApplication(config);
+  const metaData = getAndroidManifestMetaData(config);
+
+  assert.equal(
+    findMetaDataItem(
+      metaData,
+      'firebase_messaging_installation_id_enabled',
+    ),
+    undefined,
+  );
+  assert.equal(
+    application.provider?.some(
+      item =>
+        item.$['android:name'] === '.BubblesFirebaseMessagingRegistrar',
+    ) ?? false,
+    false,
+  );
+});
+
+test('plugin introspection configures Firebase installation id registration when enabled', async () => {
+  const config = await introspectPlugin({
+    enableFirebaseInstallationPushRegistration: true,
+  });
   const application = getAndroidManifestApplication(config);
   const metaData = getAndroidManifestMetaData(config);
 

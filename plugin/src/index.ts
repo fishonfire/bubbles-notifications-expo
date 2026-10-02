@@ -19,7 +19,9 @@ const withBubblesNotificationsExpo: ConfigPlugin<
   config = withRuntimeDefaults(config, options);
   config = withExpoNotifications(config, options);
   config = withFirebaseMessagingManifest(config, options);
-  config = withFirebaseMessagingRegistration(config, options);
+  if (options.enableFirebaseInstallationPushRegistration) {
+    config = withFirebaseMessagingRegistration(config, options);
+  }
   config = withRNFirebaseDisableSPM(config);
 
   return config;

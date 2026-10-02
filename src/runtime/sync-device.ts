@@ -139,7 +139,7 @@ export async function syncDeviceRegistrationState(
 
   try {
     const installationId = options.registrationState.notificationsEnabled
-      ? options.registrationState.token
+      ? options.registrationState.fid
       : null;
     const syncResult = await syncBubblesDevice({
       apiBaseUrl,

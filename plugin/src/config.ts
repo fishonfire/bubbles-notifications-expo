@@ -10,6 +10,7 @@ export type BubblesNotificationsExpoPluginConfig = {
   androidNotificationIcon?: string;
   androidNotificationColor?: string;
   enableBackgroundRemoteNotifications?: boolean;
+  enableFirebaseInstallationPushRegistration?: boolean;
 };
 
 export type NormalizedBubblesNotificationsExpoPluginConfig = {
@@ -19,6 +20,7 @@ export type NormalizedBubblesNotificationsExpoPluginConfig = {
   androidNotificationIcon?: string;
   androidNotificationColor?: string;
   enableBackgroundRemoteNotifications: boolean;
+  enableFirebaseInstallationPushRegistration: boolean;
 };
 
 function fail(message: string): never {
@@ -157,6 +159,12 @@ export function normalizePluginConfig(
       options.enableBackgroundRemoteNotifications,
       'enableBackgroundRemoteNotifications',
       true,
+    ),
+
+    enableFirebaseInstallationPushRegistration: getBooleanWithDefault(
+      options.enableFirebaseInstallationPushRegistration,
+      'enableFirebaseInstallationPushRegistration',
+      false,
     ),
   };
 }
