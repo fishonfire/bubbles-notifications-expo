@@ -12,6 +12,7 @@ test('normalizePluginConfig applies documented defaults', () => {
     androidNotificationIcon: undefined,
     androidNotificationColor: undefined,
     enableBackgroundRemoteNotifications: true,
+    enableFirebaseInstallationPushRegistration: false,
   });
 });
 
@@ -30,6 +31,14 @@ test('normalizePluginConfig validates notification color and option types', () =
         enableBackgroundRemoteNotifications: 'yes' as never,
       }),
     /"enableBackgroundRemoteNotifications" must be a boolean\./,
+  );
+
+  assert.throws(
+    () =>
+      normalizePluginConfig({
+        enableFirebaseInstallationPushRegistration: 'yes' as never,
+      }),
+    /"enableFirebaseInstallationPushRegistration" must be a boolean\./,
   );
 
   assert.throws(
@@ -59,6 +68,7 @@ test('withRuntimeDefaults merges package defaults without dropping unrelated ext
       defaultChannelName: 'Default',
       androidChannelImportance: 'high',
       enableBackgroundRemoteNotifications: true,
+      enableFirebaseInstallationPushRegistration: false,
     },
   );
 
@@ -69,6 +79,7 @@ test('withRuntimeDefaults merges package defaults without dropping unrelated ext
       defaultChannelId: 'default',
       defaultChannelName: 'Default',
       androidChannelImportance: 'high',
+      enableFirebaseInstallationPushRegistration: false,
     },
   });
 });

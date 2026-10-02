@@ -5,7 +5,10 @@ import { BUBBLES_NOTIFICATIONS_EXPO_EXTRA_KEY } from './shared-config';
 
 type RuntimeDefaults = Pick<
   NormalizedBubblesNotificationsExpoPluginConfig,
-  'defaultChannelId' | 'defaultChannelName' | 'androidChannelImportance'
+  | 'defaultChannelId'
+  | 'defaultChannelName'
+  | 'androidChannelImportance'
+  | 'enableFirebaseInstallationPushRegistration'
 >;
 
 function fail(message: string): never {
@@ -39,6 +42,8 @@ export default function withRuntimeDefaults(
     defaultChannelId: options.defaultChannelId,
     defaultChannelName: options.defaultChannelName,
     androidChannelImportance: options.androidChannelImportance,
+    enableFirebaseInstallationPushRegistration:
+      options.enableFirebaseInstallationPushRegistration,
   };
 
   return {

@@ -41,6 +41,7 @@ test('withExpoNotifications forwards the expected config to Expo built-in notifi
       androidNotificationIcon: './icon.png',
       androidNotificationColor: '#FF00FF',
       enableBackgroundRemoteNotifications: false,
+      enableFirebaseInstallationPushRegistration: false,
     },
   );
 

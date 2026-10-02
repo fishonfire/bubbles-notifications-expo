@@ -28,6 +28,7 @@ test('reads and normalizes runtime config from expo.extra', () => {
         defaultChannelId: ' default ',
         defaultChannelName: ' Default Channel ',
         androidChannelImportance: 'high',
+        enableFirebaseInstallationPushRegistration: true,
       },
     },
   };
@@ -36,7 +37,26 @@ test('reads and normalizes runtime config from expo.extra', () => {
     defaultChannelId: 'default',
     defaultChannelName: 'Default Channel',
     androidChannelImportance: 'high',
+    enableFirebaseInstallationPushRegistration: true,
   });
+});
+
+test('defaults Firebase Installation push registration to disabled at runtime', () => {
+  expoConstants.expoConfig = {
+    extra: {
+      bubblesNotificationsExpo: {
+        defaultChannelId: 'default',
+        defaultChannelName: 'Default',
+        androidChannelImportance: 'high',
+      },
+    },
+  };
+
+  assert.equal(
+    getBubblesNotificationsRuntimeConfig()
+      .enableFirebaseInstallationPushRegistration,
+    false,
+  );
 });
 
 test('throws when Expo runtime config is unavailable', () => {
