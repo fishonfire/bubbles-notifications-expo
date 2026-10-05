@@ -119,6 +119,10 @@ test('plugin introspection leaves Firebase installation id registration disabled
   const metaData = getAndroidManifestMetaData(config);
 
   assert.equal(
+    config.ios.infoPlist.FirebaseMessagingInstallationIdEnabled,
+    undefined,
+  );
+  assert.equal(
     findMetaDataItem(
       metaData,
       'firebase_messaging_installation_id_enabled',
@@ -141,6 +145,10 @@ test('plugin introspection configures Firebase installation id registration when
   const application = getAndroidManifestApplication(config);
   const metaData = getAndroidManifestMetaData(config);
 
+  assert.equal(
+    config.ios.infoPlist.FirebaseMessagingInstallationIdEnabled,
+    true,
+  );
   assert.deepEqual(
     findMetaDataItem(
       metaData,

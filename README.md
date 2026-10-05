@@ -67,11 +67,11 @@ Plugin options:
 - `androidNotificationIcon`: Optional Android notification icon path.
 - `androidNotificationColor`: Optional Android notification color in `#RRGGBB` or `#AARRGGBB` format.
 - `enableBackgroundRemoteNotifications`: Passed through to `expo-notifications`. Default: `true`.
-- `enableFirebaseInstallationPushRegistration`: Opt into FID-based Firebase Messaging registration on Android. Default: `false`.
+- `enableFirebaseInstallationPushRegistration`: Opt into FID-based Firebase Messaging registration. Default: `false`.
 
 For Android remote display, backend payloads must use the same `android.notification.channel_id` as `defaultChannelId`. The plugin writes Firebase's default-channel manifest metadata, and the package creates the actual Android notification channel when `BubblesNotificationsProvider`, `getNotificationPermissions()`, or `ensureDefaultNotificationChannel()` runs. On a fresh install, the app must be opened at least once before remote notifications can reliably use this configured channel; otherwise Android/Firebase may fall back to its own default behavior before JavaScript has created the channel.
 
-Device registration sends both Firebase identifiers during migration. By default, `push_token` is the Firebase Messaging token returned by `getToken()`, while `fid` is the Firebase Installation ID. This lets Bubbles match imported FCM-token devices and also start storing FIDs for a later migration. When `enableFirebaseInstallationPushRegistration` is set to `true`, Android opts into FID-based Firebase Messaging registration, installs native startup code that calls `FirebaseMessaging.getInstance().register()` automatically, and the FID becomes the value sent as both `push_token` and `fid`.
+Device registration sends both Firebase identifiers during migration. By default, `push_token` is the Firebase Messaging token returned by `getToken()`, while `fid` is the Firebase Installation ID. This lets Bubbles match imported FCM-token devices and also start storing FIDs for a later migration. When `enableFirebaseInstallationPushRegistration` is set to `true`, Android and iOS opt into FID-based Firebase Messaging registration, native startup code calls Firebase Messaging registration automatically, and the FID becomes the value sent as both `push_token` and `fid`.
 
 ## Background registration
 
