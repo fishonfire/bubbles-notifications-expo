@@ -77,7 +77,9 @@ vi.doMock('@react-native-firebase/messaging', () => ({
     return messagingState.isRegistered;
   },
   registerDeviceForRemoteMessages: async () => {
+    assert.equal(messagingCalls.getToken, 0);
     messagingCalls.registerDeviceForRemoteMessages += 1;
+    messagingState.isRegistered = true;
   },
   getToken: async () => {
     messagingCalls.getToken += 1;
@@ -152,7 +154,7 @@ test('getDeviceRegistrationState returns FCM token with Firebase installation id
 
   assert.deepEqual(installationCalls, ['android']);
   assert.equal(messagingCalls.getMessaging, 1);
-  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 1);
+  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 0);
   assert.equal(messagingCalls.registerDeviceForRemoteMessages, 0);
   assert.equal(messagingCalls.getToken, 1);
   assert.deepEqual(result, {
@@ -167,22 +169,24 @@ test('getDeviceRegistrationState returns FCM token with Firebase installation id
 });
 
 test('getDeviceRegistrationState registers remote messages before reading FCM token', async () => {
-  messagingState.isRegistered = false;
-
-  const result = await getDeviceRegistrationState();
-
-  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 1);
-  assert.equal(result.token, 'fcm-token-123');
-});
-
-test('getDeviceRegistrationState does not manually register remote messages before reading an iOS FCM token', async () => {
   platform.OS = 'ios';
   messagingState.isRegistered = false;
 
   const result = await getDeviceRegistrationState();
 
+  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 1);
+  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 1);
+  assert.equal(messagingCalls.getToken, 1);
+  assert.equal(result.token, 'fcm-token-123');
+});
+
+test('getDeviceRegistrationState does not manually register an already registered iOS device', async () => {
+  platform.OS = 'ios';
+
+  const result = await getDeviceRegistrationState();
+
   assert.deepEqual(installationCalls, ['ios']);
-  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 0);
+  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 1);
   assert.equal(messagingCalls.registerDeviceForRemoteMessages, 0);
   assert.equal(messagingCalls.getToken, 1);
   assert.deepEqual(result, {
@@ -193,6 +197,15 @@ test('getDeviceRegistrationState does not manually register remote messages befo
     permissionStatus: 'granted',
     notificationsEnabled: true,
   });
+});
+
+test('getFCMToken registers an unregistered iOS device before reading the token', async () => {
+  platform.OS = 'ios';
+  messagingState.isRegistered = false;
+
+  assert.equal(await getFCMToken(), 'fcm-token-123');
+  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 1);
+  assert.equal(messagingCalls.getToken, 1);
 });
 
 test('getDeviceRegistrationState returns FID as token when Firebase installation push registration is enabled', async () => {

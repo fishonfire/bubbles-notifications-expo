@@ -47,7 +47,7 @@ async function getFirebaseMessagingToken(
   const messagingInstance = getMessaging();
 
   if (
-    platform === 'android' &&
+    platform === 'ios' &&
     !isDeviceRegisteredForRemoteMessages(messagingInstance)
   ) {
     await registerDeviceForRemoteMessages(messagingInstance);

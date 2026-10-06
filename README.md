@@ -2,8 +2,6 @@
 
 `@fishonfire/bubbles-expo` is an Expo package for integrating Bubbles push notifications into an Expo app.
 
-Upgrading an existing integration? See the [migration guide](./MIGRATION.md).
-
 It provides:
 
 - an Expo config plugin for notification setup
