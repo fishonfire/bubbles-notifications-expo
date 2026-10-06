@@ -44,7 +44,7 @@ async function handleFirebaseForegroundMessage(
   const payload =
     getBubblesNotificationPayloadFromRemoteMessage(remoteMessage);
 
-  await observeForegroundNotificationReceived(payload.notificationId);
+  void observeForegroundNotificationReceived(payload.notificationId);
 
   if (!hasFirebaseDisplayNotification(remoteMessage)) {
     return;

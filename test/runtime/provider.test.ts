@@ -239,6 +239,21 @@ class HookRenderer<Props> {
     await this.flush();
   }
 
+  abandonRender(props: Props) {
+    const committedProps = this.props;
+    const committedOutput = this.output;
+    const committedEffects = [...this.effectSlots];
+    const committedMemos = [...this.memoSlots];
+    const committedPendingEffects = [...this.pendingEffectIndexes];
+    this.props = props;
+    this.render();
+    this.props = committedProps;
+    this.output = committedOutput;
+    this.effectSlots.splice(0, this.effectSlots.length, ...committedEffects);
+    this.memoSlots.splice(0, this.memoSlots.length, ...committedMemos);
+    this.pendingEffectIndexes = committedPendingEffects;
+  }
+
   unmount() {
     for (const effect of this.effectSlots) {
       effect?.cleanup?.();
@@ -387,6 +402,12 @@ vi.doMock('react', () => ({
       throw new Error('useEffect called without an active renderer.');
     }
 
+    activeRenderer.useEffect(effect, deps);
+  },
+  useLayoutEffect(effect: () => Cleanup, deps?: unknown[]) {
+    if (!activeRenderer) {
+      throw new Error('useLayoutEffect called without an active renderer.');
+    }
     activeRenderer.useEffect(effect, deps);
   },
   useCallback<Callback extends (...args: any[]) => unknown>(
@@ -1476,5 +1497,51 @@ test('BubblesNotificationsProvider reuses state only for matching enrollment met
   const newVersion = await enroll({ ...options, userId: 'other-user', aliasing: ['other'], appVersion: '2.0.0' });
   assert.equal(newVersion.previousRegistrationState, undefined);
 
+  renderer.unmount();
+});
+
+test('abandoned configuration render preserves the committed enrolled session', async () => {
+  const renderer = await renderProvider();
+  await getContextValue(renderer).registerDevice({ userId: 'committed-user' });
+  await renderer.flush();
+
+  renderer.abandonRender(createProviderProps({ appKey: 'abandoned-app-key' }));
+  tokenRefreshListener?.('rotated-token');
+  await renderer.flush();
+
+  assert.equal(maintenanceCalls.length, 1);
+  assert.equal(maintenanceCalls[0]?.appKey, createProviderProps().appKey);
+  renderer.unmount();
+});
+
+test('abandoned configuration render does not cancel an in-flight enrollment', async () => {
+  const renderer = await renderProvider();
+  const deferredRegistration = createDeferred<SyncResult>();
+  registerState.implementation = async () => deferredRegistration.promise;
+  const registration = getContextValue(renderer).registerDevice({ userId: 'committed-user' });
+  await flushMicrotasks();
+
+  renderer.abandonRender(createProviderProps({ appKey: 'abandoned-app-key' }));
+  deferredRegistration.resolve({
+    action: 'updated', deviceId: 'committed-device', pushToken: 'push-token',
+    tokenType: 'fcm', permissionStatus: 'granted', notificationsEnabled: true,
+    registrationState: grantedRegistrationState,
+  });
+  await registration;
+  await renderer.flush();
+  tokenRefreshListener?.('rotated-token');
+  await renderer.flush();
+
+  assert.equal(maintenanceCalls[0]?.deviceId, 'committed-device');
+  renderer.unmount();
+});
+
+test('retained registration callback uses the committed provider configuration', async () => {
+  const renderer = await renderProvider();
+  const registerDevice = getContextValue(renderer).registerDevice;
+  await renderer.update(createProviderProps({ appKey: 'replacement-app-key' }));
+  await registerDevice({ userId: 'current-user' });
+  await renderer.flush();
+  assert.equal(registerCalls[0]?.appKey, 'replacement-app-key');
   renderer.unmount();
 });

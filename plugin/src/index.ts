@@ -23,10 +23,8 @@ const withBubblesNotificationsExpo: ConfigPlugin<
   config = withFirebaseMessagingManifest(config, options);
   config = withRNFBMessagingMainThreadPatch(config);
   config = withRNFirebaseDisableSPM(config);
-  if (options.enableFirebaseInstallationPushRegistration) {
-    config = withIosFirebaseMessagingRegistration(config, options);
-    config = withFirebaseMessagingRegistration(config, options);
-  }
+  config = withIosFirebaseMessagingRegistration(config, options);
+  config = withFirebaseMessagingRegistration(config, options);
 
   return config;
 };

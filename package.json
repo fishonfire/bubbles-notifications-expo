@@ -28,7 +28,6 @@
     "plugin/build",
     "app.plugin.js",
     "README.md",
-    "MIGRATION.md",
     "LICENSE"
   ],
   "sideEffects": [

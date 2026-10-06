@@ -99,8 +99,8 @@ function handleNotificationResponse(
 ) {
   const observedResponse = buildObservedNotificationResponse(response);
 
-  options.onNotificationResponse?.(observedResponse.event);
   postNotificationClickedDeliveryStatus(observedResponse.notificationId);
+  options.onNotificationResponse?.(observedResponse.event);
 }
 
 function processStartupNotificationResponse(

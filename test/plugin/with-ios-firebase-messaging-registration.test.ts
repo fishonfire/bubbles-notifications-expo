@@ -110,3 +110,27 @@ test('updateObjcAppDelegateRegistration injects and removes FID registration sta
   assert.doesNotMatch(disabled, /@fishonfire\/bubbles-expo-ios-firebase-messaging-registration/);
   assert.doesNotMatch(disabled, /registerWithCompletion/);
 });
+
+for (const [name, source] of [
+  ['next-line brace', objcAppDelegate],
+  ['same-line brace', objcAppDelegate.replace('launchOptions\n{', 'launchOptions {')],
+  ['multiline signature', objcAppDelegate.replace(' didFinishLaunchingWithOptions:', '\n  didFinishLaunchingWithOptions:')],
+] as const) {
+  test(`Objective-C registration is inside the launch method with ${name}`, () => {
+    const enabled = updateObjcAppDelegateRegistration(source, true);
+    assert.match(enabled, /launchOptions\s*\{\s*\/\/ @generated begin/);
+    assert.match(enabled, /registerWithCompletion:[\s\S]*self.moduleName/);
+    assert.equal(updateObjcAppDelegateRegistration(enabled, true), enabled);
+  });
+}
+
+test('Objective-C registration skips other application methods before the launch method', () => {
+  const source = objcAppDelegate.replace('@implementation AppDelegate', `@implementation AppDelegate
+
+- (BOOL)application:(UIApplication *)application openURL:(NSURL *)url
+{
+  return YES;
+}`);
+  const enabled = updateObjcAppDelegateRegistration(source, true);
+  assert.match(enabled, /openURL:[\s\S]*return YES;[\s\S]*didFinishLaunchingWithOptions:[\s\S]*\{\s*\/\/ @generated begin/);
+});

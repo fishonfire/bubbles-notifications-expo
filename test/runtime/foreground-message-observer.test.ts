@@ -32,6 +32,7 @@ const notificationCalls = {
   schedule: [] as Array<Record<string, unknown>>,
 };
 const deliveryStatusCalls: Array<Record<string, unknown>> = [];
+let receivedStatusPromise: Promise<void> | null = null;
 
 async function flushMicrotasks() {
   for (let index = 0; index < 5; index += 1) {
@@ -84,6 +85,7 @@ vi.doMock('../../src/notifications/delivery-status.ts', () => ({
     options: Record<string, unknown>,
   ) => {
     deliveryStatusCalls.push({ ...options, status: 'received' });
+    await receivedStatusPromise;
   },
   observeStoredBubblesLocalDisplayRequested: async (
     options: Record<string, unknown>,
@@ -115,6 +117,7 @@ beforeEach(() => {
   notificationCalls.getPermissions = 0;
   notificationCalls.schedule.length = 0;
   deliveryStatusCalls.length = 0;
+  receivedStatusPromise = null;
 });
 
 test('foreground message observer subscribes on supported platforms and schedules a local notification', async () => {
@@ -242,4 +245,21 @@ test('foreground message observer skips unsupported platforms', () => {
 
   cleanup();
   assert.equal(messagingCalls.unsubscribe, 0);
+});
+
+test('foreground display proceeds while received status reporting is pending', async () => {
+  let resolveStatus!: () => void;
+  receivedStatusPromise = new Promise<void>(resolve => { resolveStatus = resolve; });
+  const cleanup = observeBubblesForegroundMessages();
+
+  messagingCalls.onMessage[0]?.listener({
+    data: { notification_id: 'notification-slow-api' },
+    notification: { title: 'Display immediately', body: 'Pending reporting' },
+  });
+  await flushMicrotasks();
+
+  assert.equal(notificationCalls.schedule.length, 1);
+  resolveStatus();
+  await flushMicrotasks();
+  cleanup();
 });

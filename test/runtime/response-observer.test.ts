@@ -263,3 +263,21 @@ test('preserves response deduplication when the callback identity changes', () =
   assert.equal(deliveryStatusCalls.length, 1);
   assert.equal(callbackEvents.length, 1);
 });
+
+test('queues clicked status even when the application callback throws', () => {
+  const response = createResponse('callback-failure', {
+    notification_id: 'notification-callback-failure',
+  });
+  const cleanup = observeBubblesNotificationResponses({
+    onNotificationResponse() { throw new Error('callback failed'); },
+  });
+
+  assert.throws(() => notificationSubscriptions.listener?.(response), /callback failed/);
+  notificationSubscriptions.listener?.(response);
+  assert.deepEqual(deliveryStatusCalls, [{
+    source: 'notification response',
+    notificationId: 'notification-callback-failure',
+    status: 'clicked',
+  }]);
+  cleanup();
+});

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
 import { failWithBubblesError } from '../internal/errors';
@@ -127,17 +127,19 @@ export function BubblesNotificationsProvider(
   const maintenancePendingRef = useRef(false);
   const maintenanceRequestedRef = useRef(false);
   const appStateRef = useRef(AppState.currentState);
-  const providerConfiguration = { appId, appKey, apiBaseUrl };
+  useLayoutEffect(() => {
+    const providerConfiguration = { appId, appKey, apiBaseUrl };
 
-  if (!areProviderConfigurationsEqual(
-    providerConfigurationRef.current,
-    providerConfiguration,
-  )) {
-    providerConfigurationRef.current = providerConfiguration;
-    providerConfigurationVersionRef.current += 1;
-    enrollmentRequestVersionRef.current += 1;
-    enrolledSessionRef.current = null;
-  }
+    if (!areProviderConfigurationsEqual(
+      providerConfigurationRef.current,
+      providerConfiguration,
+    )) {
+      providerConfigurationRef.current = providerConfiguration;
+      providerConfigurationVersionRef.current += 1;
+      enrollmentRequestVersionRef.current += 1;
+      enrolledSessionRef.current = null;
+    }
+  }, [appId, appKey, apiBaseUrl]);
 
   const requestMaintenance = useCallback(() => {
     if (enrolledSessionRef.current === null) {
@@ -358,6 +360,7 @@ export function BubblesNotificationsProvider(
   }, [normalizedUserId, onLogout, state.deviceId]);
 
   const registerDevice: RegisterDevice = (options?: RegisterDeviceOptions) => {
+    const providerConfiguration = providerConfigurationRef.current;
     const requestVersion = enrollmentRequestVersionRef.current + 1;
     const providerConfigurationVersion =
       providerConfigurationVersionRef.current;
@@ -401,16 +404,14 @@ export function BubblesNotificationsProvider(
 
       const deviceId = currentDeviceIdRef.current;
       const sameSession = previousSession !== null &&
-        areProviderConfigurationsEqual(previousSession, { appId, appKey, apiBaseUrl }) &&
+        areProviderConfigurationsEqual(previousSession, providerConfiguration) &&
         previousSession.deviceId === deviceId &&
         previousSession.userId === enrollmentUserId &&
         (previousSession.appVersion ?? null) === (enrollmentAppVersion ?? null) &&
         JSON.stringify(previousSession.aliasing ?? []) === JSON.stringify(enrollmentAliasing ?? []);
 
       const result = await registerBubblesDevice({
-        appId,
-        appKey,
-        apiBaseUrl,
+        ...providerConfiguration,
         userId: enrollmentUserId,
         aliasing: enrollmentAliasing,
         appVersion: enrollmentAppVersion,
@@ -435,9 +436,7 @@ export function BubblesNotificationsProvider(
 
       if (result.deviceId !== null) {
         enrolledSessionRef.current = {
-          appId,
-          appKey,
-          apiBaseUrl,
+          ...providerConfiguration,
           userId: enrollmentUserId,
           aliasing: enrollmentAliasing ? [...enrollmentAliasing] : enrollmentAliasing,
           appVersion: enrollmentAppVersion,
@@ -472,8 +471,8 @@ export function BubblesNotificationsProvider(
       }
 
       await updateBubblesDeviceAttributes({
-        apiBaseUrl,
-        appKey,
+        apiBaseUrl: providerConfigurationRef.current.apiBaseUrl,
+        appKey: providerConfigurationRef.current.appKey,
         deviceId,
         attributes,
       });

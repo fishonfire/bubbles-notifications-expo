@@ -185,13 +185,23 @@ export function updateObjcAppDelegateRegistration(
   );
 
   try {
+    const method = /-\s*\(BOOL\)\s*application:\s*\(UIApplication\s*\*\s*\)\w+[^;{]*didFinishLaunchingWithOptions:[^;{]*\{/.exec(nextContents);
+
+    if (!method) {
+      throw new Error('Unable to locate the launch method opening brace.');
+    }
+
+    const openingBraceLine = nextContents
+      .slice(0, method.index + method[0].length)
+      .split('\n').length;
+
     return mergeContents({
       tag: IOS_REGISTRATION_TAG,
       src: nextContents,
       newSrc: OBJC_REGISTRATION_BLOCK,
-      anchor:
-        /-\s*\(BOOL\)\s*application:\s*\(UIApplication\s*\*\s*\)\w+\s+didFinishLaunchingWithOptions:/,
-      offset: 1,
+      // mergeContents matches one line at a time; insert after the located brace.
+      anchor: /^/,
+      offset: openingBraceLine,
       comment: '//',
     }).contents;
   } catch {

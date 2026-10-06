@@ -54,7 +54,7 @@ beforeEach(() => {
   pluginCalls.length = 0;
 });
 
-test('default plugin configuration applies messaging safety mods without FID registration', () => {
+test('default plugin configuration applies cleanup-capable FID mods', () => {
   withBubblesNotificationsExpo({} as never, undefined);
 
   assert.deepEqual(pluginCalls, [
@@ -63,6 +63,8 @@ test('default plugin configuration applies messaging safety mods without FID reg
     'firebase-messaging-manifest',
     'rnfb-main-thread-patch',
     'rnfirebase-disable-spm',
+    'ios-fid-registration',
+    'android-fid-registration',
   ]);
 });
 

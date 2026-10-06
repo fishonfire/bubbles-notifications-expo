@@ -200,7 +200,7 @@ test('deduplicates clicked delivery statuses once per notification', async () =>
   assert.equal(readStoredDeliveryStatusLedger().postedEventKeys.length, 1);
 });
 
-test('migrates action-specific ledger keys to notification-scoped keys', () => {
+test('migration drops pending clicks already posted under another action key', async () => {
   const ledgerUri = `${documentDirectory}/bubbles-notifications-expo-delivery-status-ledger.json`;
   const createdAt = new Date().toISOString();
   const defaultActionKey = JSON.stringify([
@@ -242,16 +242,16 @@ test('migrates action-specific ledger keys to notification-scoped keys', () => {
 
   const ledger = readStoredDeliveryStatusLedger();
 
-  assert.equal(ledger.pendingEvents.length, 1);
-  assert.deepEqual(ledger.pendingEvents[0], {
-    key: JSON.stringify(['notification-1', 'clicked', null]),
-    notificationId: 'notification-1',
-    status: 'clicked',
-    createdAt,
-  });
+  assert.deepEqual(ledger.pendingEvents, []);
   assert.deepEqual(ledger.postedEventKeys, [
     JSON.stringify(['notification-1', 'clicked', null]),
   ]);
+
+  storedDeviceState.deviceId = 'device-1';
+  storedDeviceState.apiBaseUrl = 'https://api.example.com';
+  storedDeviceState.appKey = 'app-key-1';
+  await flushStoredBubblesDeliveryStatuses();
+  assert.deepEqual(postDeliveryStatusCalls, []);
 });
 
 test('leaves failed delivery statuses queued for retry', async () => {
@@ -386,4 +386,20 @@ test('retains only the newest 200 pending events and posted keys', () => {
   assert.equal(ledger.pendingEvents[0]?.notificationId, 'notification-5');
   assert.equal(ledger.postedEventKeys.length, 200);
   assert.equal(ledger.postedEventKeys[0], 'posted-5');
+});
+
+test('migration keeps one unposted click across legacy action keys', () => {
+  const event = createStoredDeliveryStatusEvent({ notificationId: 'unposted-click', status: 'clicked' });
+  fileContents.set(
+    `${documentDirectory}/bubbles-notifications-expo-delivery-status-ledger.json`,
+    JSON.stringify({
+      version: 1,
+      pendingEvents: ['default', 'custom'].map(actionId => ({
+        ...event, actionId,
+        key: JSON.stringify(['unposted-click', 'clicked', null, actionId]),
+      })),
+      postedEventKeys: [],
+    }),
+  );
+  assert.deepEqual(readStoredDeliveryStatusLedger().pendingEvents, [event]);
 });

@@ -211,6 +211,11 @@ function normalizeDeliveryStatusLedger(
     );
   }
 
+  const postedEventKeys = normalizeStoredDeliveryStatusEventKeys(
+    value.postedEventKeys,
+  );
+  const postedEventKeySet = new Set(postedEventKeys);
+
   return {
     pendingEvents: boundPendingEvents(
       Array.isArray(value.pendingEvents)
@@ -221,10 +226,8 @@ function normalizeDeliveryStatusLedger(
             ),
           )
         : [],
-    ),
-    postedEventKeys: normalizeStoredDeliveryStatusEventKeys(
-      value.postedEventKeys,
-    ).slice(-MAX_POSTED_EVENT_KEYS),
+    ).filter(event => !postedEventKeySet.has(event.key)),
+    postedEventKeys: postedEventKeys.slice(-MAX_POSTED_EVENT_KEYS),
   };
 }
 
