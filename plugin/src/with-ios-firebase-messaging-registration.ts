@@ -37,6 +37,32 @@ const OBJC_REGISTRATION_BLOCK = `if ([FIRApp defaultApp] == nil) {
     }
   }];`;
 
+type MergeAnchor = {
+  anchor: RegExp;
+  offset: number;
+};
+
+const SWIFT_REGISTRATION_ANCHORS: MergeAnchor[] = [
+  {
+    anchor:
+      /func\s+application\([^)]*didFinishLaunchingWithOptions[^)]*\)\s*->\s*Bool\s*{/,
+    offset: 1,
+  },
+  {
+    anchor:
+      /^[ \t]*return\s+super\.application\(application,\s*didFinishLaunchingWithOptions:\s*launchOptions\)/m,
+    offset: 0,
+  },
+  {
+    anchor: /^[ \t]*factory\.startReactNative\(/m,
+    offset: 0,
+  },
+  {
+    anchor: /^[ \t]*return\s+true[ \t]*$/m,
+    offset: 0,
+  },
+];
+
 function addImport(
   contents: string,
   importLine: string,
@@ -111,23 +137,26 @@ export function updateSwiftAppDelegateRegistration(
     /^[ \t]*import\b[^\r\n]*$/m,
   );
 
-  try {
-    return mergeContents({
-      tag: IOS_REGISTRATION_TAG,
-      src: nextContents,
-      newSrc: SWIFT_REGISTRATION_BLOCK,
-      anchor:
-        /func\s+application\([^)]*didFinishLaunchingWithOptions[^)]*\)\s*->\s*Bool\s*{/,
-      offset: 1,
-      comment: '//',
-    }).contents;
-  } catch {
-    WarningAggregator.addWarningIOS(
-      '@fishonfire/bubbles-expo',
-      'Unable to determine correct Firebase Messaging registration insertion point in AppDelegate.swift. Skipping iOS FID registration startup code.',
-    );
-    return nextContents;
+  for (const { anchor, offset } of SWIFT_REGISTRATION_ANCHORS) {
+    try {
+      return mergeContents({
+        tag: IOS_REGISTRATION_TAG,
+        src: nextContents,
+        newSrc: SWIFT_REGISTRATION_BLOCK,
+        anchor,
+        offset,
+        comment: '//',
+      }).contents;
+    } catch {
+      // Try the next supported AppDelegate shape.
+    }
   }
+
+  WarningAggregator.addWarningIOS(
+    '@fishonfire/bubbles-expo',
+    'Unable to determine correct Firebase Messaging registration insertion point in AppDelegate.swift. Skipping iOS FID registration startup code.',
+  );
+  return nextContents;
 }
 
 export function updateObjcAppDelegateRegistration(

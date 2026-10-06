@@ -1,37 +1,94 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 
 import { failWithBubblesError } from '../internal/errors';
 import { getRequiredNonEmptyString } from '../internal/validation';
-import { storeApiBaseUrl, storeAppKey } from '../storage/device-state';
+import { flushStoredBubblesDeliveryStatuses } from '../notifications/delivery-status';
+import {
+  patchStoredDeviceStateAsync,
+  readStoredDeviceIdAsync,
+} from '../storage/device-state';
 import {
   updateBubblesDeviceAttributes,
+  type BubblesDeviceAttributes,
   type BubblesDeviceAttributeValue,
 } from '../api/device-client';
 
 import {
   BubblesNotificationsContext,
   type BubblesNotificationsProviderProps,
+  type RegisterDevice,
   type RegisterDeviceOptions,
 } from './context';
 import {
-  applyBubblesForegroundPresentation,
-  clearBubblesForegroundPresentation,
+  acquireBubblesForegroundPresentation,
+  describeNotificationPermissionStatus,
+  getNotificationPermissions,
+  isNotificationPermissionGranted,
   observeBubblesNotificationOpenEvents,
-  prepareBubblesNotificationPresentation,
+  updateBubblesForegroundPresentation,
 } from './presentation';
-import { registerBubblesDevice } from './register-device';
-import { useBubblesRuntimeOperationQueue } from './provider-operation-queue';
 import {
-  getAutomaticSyncSignature,
+  maintainBubblesDevice,
+  registerBubblesDevice,
+  type RegisterBubblesDeviceResult,
+} from './register-device';
+import { useBubblesRegistrationCoordinator } from './registration-coordinator';
+import {
   getInitialRuntimeState,
   getRuntimeStateUpdate,
   normalizeProviderError,
   normalizeUserId,
 } from './provider-state';
 import {
-  syncExistingBubblesDevice,
-} from './sync-device';
-import { observeBubblesForegroundRemoteMessages } from './transport';
+  observeBubblesDeviceTokenRefresh,
+  observeBubblesForegroundRemoteMessages,
+} from './transport';
+
+async function flushStoredDeliveryStatusesBestEffort(
+  source: string,
+  storedDeviceState?: Awaited<
+    ReturnType<typeof patchStoredDeviceStateAsync>
+  >,
+): Promise<void> {
+  try {
+    await flushStoredBubblesDeliveryStatuses(storedDeviceState);
+  } catch (error) {
+    console.error(
+      `[@fishonfire/bubbles-expo] Failed to flush stored delivery statuses ${source}.`,
+      error,
+    );
+  }
+}
+
+interface EnrolledSession {
+  appId: string | number;
+  appKey: string;
+  apiBaseUrl: string;
+  userId: string;
+  aliasing?: string[] | null;
+  appVersion?: string | null;
+  deviceId: string;
+  registrationState: RegisterBubblesDeviceResult['registrationState'];
+  source: 'explicit' | 'legacy';
+}
+
+interface ProviderConfiguration {
+  appId: string | number;
+  appKey: string;
+  apiBaseUrl: string;
+}
+
+function areProviderConfigurationsEqual(
+  left: ProviderConfiguration,
+  right: ProviderConfiguration,
+): boolean {
+  return (
+    left.appId === right.appId &&
+    left.appKey === right.appKey &&
+    left.apiBaseUrl === right.apiBaseUrl
+  );
+}
 
 export function BubblesNotificationsProvider(
   props: BubblesNotificationsProviderProps,
@@ -49,39 +106,129 @@ export function BubblesNotificationsProvider(
     onNotificationResponse,
     children,
   } = props;
-  const normalizedUserId = normalizeUserId(userId);
+  const normalizedUserId = normalizeUserId(userId ?? null);
   const [state, setState] = useState(getInitialRuntimeState);
-  const { enqueueOperation, isMountedRef } =
-    useBubblesRuntimeOperationQueue(setState);
-  const lastAutomaticSyncSignatureRef = useRef<string | null>(null);
+  const {
+    isMountedRef,
+    runRegistration,
+    waitForCurrentRegistration,
+  } = useBubblesRegistrationCoordinator(setState);
   const currentDeviceIdRef = useRef<string | null>(state.deviceId);
+  const foregroundPresentationOwnerRef = useRef({});
   const previousUserIdRef = useRef<string | null>(normalizedUserId);
-
-  const buildAutomaticSyncSignature = useCallback((deviceId: string): string => {
-    return getAutomaticSyncSignature({
-      appId,
-      appKey,
-      apiBaseUrl,
-      userId: normalizedUserId as string,
-      aliasing,
-      appVersion,
-      deviceId,
-    });
-  }, [
+  const enrolledSessionRef = useRef<EnrolledSession | null>(null);
+  const enrollmentRequestVersionRef = useRef(0);
+  const providerConfigurationVersionRef = useRef(0);
+  const providerConfigurationRef = useRef<ProviderConfiguration>({
     appId,
     appKey,
     apiBaseUrl,
-    normalizedUserId,
-    aliasing,
-    appVersion,
-  ]);
+  });
+  const maintenancePendingRef = useRef(false);
+  const maintenanceRequestedRef = useRef(false);
+  const appStateRef = useRef(AppState.currentState);
+  const providerConfiguration = { appId, appKey, apiBaseUrl };
+
+  if (!areProviderConfigurationsEqual(
+    providerConfigurationRef.current,
+    providerConfiguration,
+  )) {
+    providerConfigurationRef.current = providerConfiguration;
+    providerConfigurationVersionRef.current += 1;
+    enrollmentRequestVersionRef.current += 1;
+    enrolledSessionRef.current = null;
+  }
+
+  const requestMaintenance = useCallback(() => {
+    if (enrolledSessionRef.current === null) {
+      return;
+    }
+
+    maintenanceRequestedRef.current = true;
+
+    if (maintenancePendingRef.current) {
+      return;
+    }
+
+    maintenancePendingRef.current = true;
+
+    void Promise.resolve().then(() => {
+      void runRegistration(async () => {
+        let runtimeStateUpdate;
+
+        do {
+          maintenanceRequestedRef.current = false;
+          const enrolledSession = enrolledSessionRef.current;
+
+          if (enrolledSession === null) {
+            break;
+          }
+
+          const maintenanceResult = await maintainBubblesDevice({
+            appId: enrolledSession.appId,
+            appKey: enrolledSession.appKey,
+            apiBaseUrl: enrolledSession.apiBaseUrl,
+            userId: enrolledSession.userId,
+            aliasing: enrolledSession.aliasing,
+            appVersion: enrolledSession.appVersion,
+            deviceId: enrolledSession.deviceId,
+            previousRegistrationState:
+              enrolledSession.registrationState,
+          });
+
+          if (enrolledSessionRef.current !== enrolledSession) {
+            break;
+          }
+
+          const nextDeviceId =
+            maintenanceResult.syncResult?.deviceId ??
+            enrolledSession.deviceId;
+
+          enrolledSessionRef.current = {
+            ...enrolledSession,
+            deviceId: nextDeviceId,
+            registrationState: maintenanceResult.registrationState,
+          };
+          currentDeviceIdRef.current = nextDeviceId;
+          runtimeStateUpdate = maintenanceResult.syncResult
+            ? getRuntimeStateUpdate(maintenanceResult.syncResult)
+            : {
+                deviceId: nextDeviceId,
+                pushToken: maintenanceResult.registrationState.token,
+                tokenType: maintenanceResult.registrationState.tokenType,
+                permissionStatus:
+                  maintenanceResult.registrationState.permissionStatus,
+                notificationsEnabled:
+                  maintenanceResult.registrationState.notificationsEnabled,
+              };
+        } while (maintenanceRequestedRef.current);
+
+        return runtimeStateUpdate;
+      })
+        .catch(() => undefined)
+        .finally(() => {
+          maintenancePendingRef.current = false;
+
+          if (maintenanceRequestedRef.current) {
+            requestMaintenance();
+          }
+        });
+    });
+  }, [runRegistration]);
 
   useEffect(() => {
+    isMountedRef.current = true;
+
     return () => {
       isMountedRef.current = false;
-      clearBubblesForegroundPresentation();
     };
   }, [isMountedRef]);
+
+  useEffect(() => {
+    return acquireBubblesForegroundPresentation(
+      foregroundPresentationOwnerRef.current,
+    );
+  }, []);
 
   useEffect(() => {
     currentDeviceIdRef.current = state.deviceId;
@@ -92,9 +239,39 @@ export function BubblesNotificationsProvider(
 
     void (async () => {
       try {
-        storeApiBaseUrl(getRequiredNonEmptyString(apiBaseUrl, 'apiBaseUrl'));
-        storeAppKey(getRequiredNonEmptyString(appKey, 'appKey'));
-        await prepareBubblesNotificationPresentation();
+        const [storedDeviceState, permissions] = await Promise.all([
+          patchStoredDeviceStateAsync({
+            apiBaseUrl: getRequiredNonEmptyString(apiBaseUrl, 'apiBaseUrl'),
+            appKey: getRequiredNonEmptyString(appKey, 'appKey'),
+          }),
+          getNotificationPermissions({ requestPermissions: false }),
+        ]);
+
+        if (isCancelled || !isMountedRef.current) {
+          return;
+        }
+
+        currentDeviceIdRef.current = storedDeviceState.deviceId;
+        setState((currentState) => ({
+          ...currentState,
+          deviceId: storedDeviceState.deviceId,
+          permissionStatus:
+            describeNotificationPermissionStatus(permissions),
+          notificationsEnabled:
+            isNotificationPermissionGranted(permissions),
+          error: null,
+        }));
+
+        if (
+          storedDeviceState.deviceId &&
+          storedDeviceState.apiBaseUrl &&
+          storedDeviceState.appKey
+        ) {
+          await flushStoredDeliveryStatusesBestEffort(
+            'during provider startup',
+            storedDeviceState,
+          );
+        }
       } catch (error) {
         if (!isCancelled && isMountedRef.current) {
           setState((currentState) => ({
@@ -111,12 +288,42 @@ export function BubblesNotificationsProvider(
   }, [apiBaseUrl, appKey, isMountedRef]);
 
   useEffect(() => {
-    applyBubblesForegroundPresentation(foregroundPresentation);
+    updateBubblesForegroundPresentation(
+      foregroundPresentationOwnerRef.current,
+      foregroundPresentation,
+    );
   }, [foregroundPresentation]);
 
   useEffect(() => {
     return observeBubblesForegroundRemoteMessages();
   }, []);
+
+  useEffect(() => {
+    return observeBubblesDeviceTokenRefresh(() => {
+      requestMaintenance();
+    });
+  }, [requestMaintenance]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener(
+      'change',
+      (nextAppState) => {
+        const previousAppState = appStateRef.current;
+        appStateRef.current = nextAppState;
+
+        if (previousAppState !== 'active' && nextAppState === 'active') {
+          void flushStoredDeliveryStatusesBestEffort(
+            'after the app returned to the foreground',
+          );
+          requestMaintenance();
+        }
+      },
+    );
+
+    return () => {
+      subscription.remove();
+    };
+  }, [requestMaintenance]);
 
   useEffect(() => {
     return observeBubblesNotificationOpenEvents({
@@ -128,97 +335,159 @@ export function BubblesNotificationsProvider(
     const previousUserId = previousUserIdRef.current;
 
     if (previousUserId !== null && normalizedUserId === null) {
-      lastAutomaticSyncSignatureRef.current = null;
+      if (enrolledSessionRef.current?.source === 'legacy') {
+        enrolledSessionRef.current = null;
+      }
 
       if (onLogout) {
-        void enqueueOperation(async () => {
-          await onLogout({
+        void Promise.resolve()
+          .then(() => onLogout({
             previousUserId,
             deviceId: state.deviceId,
+          }))
+          .catch((error) => {
+            console.error(
+              '[@fishonfire/bubbles-expo] Deprecated onLogout callback failed.',
+              error,
+            );
           });
-        });
       }
     }
 
     previousUserIdRef.current = normalizedUserId;
-  }, [enqueueOperation, normalizedUserId, onLogout, state.deviceId]);
+  }, [normalizedUserId, onLogout, state.deviceId]);
 
-  useEffect(() => {
-    if (!ready || normalizedUserId === null || state.deviceId === null) {
-      lastAutomaticSyncSignatureRef.current = null;
-      return;
-    }
+  const registerDevice: RegisterDevice = (options?: RegisterDeviceOptions) => {
+    const requestVersion = enrollmentRequestVersionRef.current + 1;
+    const providerConfigurationVersion =
+      providerConfigurationVersionRef.current;
+    enrollmentRequestVersionRef.current = requestVersion;
+    const previousSession = enrolledSessionRef.current;
+    enrolledSessionRef.current = null;
 
-    const syncSignature = buildAutomaticSyncSignature(state.deviceId);
+    return runRegistration(async () => {
+      if (
+        requestVersion !== enrollmentRequestVersionRef.current ||
+        providerConfigurationVersion !==
+          providerConfigurationVersionRef.current
+      ) {
+        return;
+      }
 
-    if (lastAutomaticSyncSignatureRef.current === syncSignature) {
-      return;
-    }
+      const usesLegacyEnrollment = options === undefined;
 
-    lastAutomaticSyncSignatureRef.current = syncSignature;
-    const storedDeviceId = state.deviceId;
-
-    void enqueueOperation(async () => {
-      const result = await syncExistingBubblesDevice({
-        appId,
-        appKey,
-        apiBaseUrl,
-        userId: normalizedUserId,
-        aliasing,
-        appVersion,
-        deviceId: storedDeviceId,
-      });
-
-      currentDeviceIdRef.current = result.deviceId;
-      return getRuntimeStateUpdate(result);
-    });
-  }, [
-    ready,
-    normalizedUserId,
-    state.deviceId,
-    appId,
-    appKey,
-    apiBaseUrl,
-    aliasing,
-    appVersion,
-    buildAutomaticSyncSignature,
-    enqueueOperation,
-  ]);
-
-  function registerDevice(options?: RegisterDeviceOptions) {
-    return enqueueOperation(async () => {
-      if (!ready) {
+      if (usesLegacyEnrollment && !ready) {
         failWithBubblesError(
-          '"registerDevice()" requires "ready" to be true before the device can be synced.',
+          'The deprecated zero-argument "registerDevice()" call requires the provider "ready" prop to be true.',
         );
       }
 
-      if (normalizedUserId === null) {
+      const enrollmentUserId = usesLegacyEnrollment
+        ? normalizedUserId
+        : normalizeUserId(options?.userId);
+
+      if (enrollmentUserId === null) {
         failWithBubblesError(
-          '"registerDevice()" requires a non-null "userId" before the device can be synced.',
+          '"registerDevice(options)" requires a non-empty "userId".',
         );
       }
+
+      const enrollmentAliasing = usesLegacyEnrollment
+        ? aliasing
+        : options?.aliasing;
+      const enrollmentAppVersion = usesLegacyEnrollment
+        ? appVersion
+        : options?.appVersion;
+
+      const deviceId = currentDeviceIdRef.current;
+      const sameSession = previousSession !== null &&
+        areProviderConfigurationsEqual(previousSession, { appId, appKey, apiBaseUrl }) &&
+        previousSession.deviceId === deviceId &&
+        previousSession.userId === enrollmentUserId &&
+        (previousSession.appVersion ?? null) === (enrollmentAppVersion ?? null) &&
+        JSON.stringify(previousSession.aliasing ?? []) === JSON.stringify(enrollmentAliasing ?? []);
 
       const result = await registerBubblesDevice({
         appId,
         appKey,
         apiBaseUrl,
-        userId: normalizedUserId,
-        aliasing,
-        appVersion,
-        deviceId: currentDeviceIdRef.current,
+        userId: enrollmentUserId,
+        aliasing: enrollmentAliasing,
+        appVersion: enrollmentAppVersion,
+        deviceId,
+        loadDeviceId:
+          deviceId === null ? readStoredDeviceIdAsync : undefined,
         registrationOptions: options,
+        ...(sameSession ? {
+          previousRegistrationState: previousSession.registrationState,
+        } : {}),
       });
+
+      if (
+        requestVersion !== enrollmentRequestVersionRef.current ||
+        providerConfigurationVersion !==
+          providerConfigurationVersionRef.current
+      ) {
+        return;
+      }
 
       currentDeviceIdRef.current = result.deviceId;
 
       if (result.deviceId !== null) {
-        lastAutomaticSyncSignatureRef.current = buildAutomaticSyncSignature(
-          result.deviceId,
-        );
+        enrolledSessionRef.current = {
+          appId,
+          appKey,
+          apiBaseUrl,
+          userId: enrollmentUserId,
+          aliasing: enrollmentAliasing ? [...enrollmentAliasing] : enrollmentAliasing,
+          appVersion: enrollmentAppVersion,
+          deviceId: result.deviceId,
+          registrationState: result.registrationState,
+          source: usesLegacyEnrollment ? 'legacy' : 'explicit',
+        };
       }
 
       return getRuntimeStateUpdate(result);
+    });
+  };
+
+  function setDeviceAttributes(attributes: BubblesDeviceAttributes) {
+    return updateDeviceAttributes(() => attributes, 'setDeviceAttributes');
+  }
+
+  function updateDeviceAttributes(
+    getAttributes: () => BubblesDeviceAttributes,
+    operationName: 'addDeviceAttribute' | 'setDeviceAttributes',
+  ) {
+    return (async () => {
+      await waitForCurrentRegistration();
+      const attributes = getAttributes();
+
+      const deviceId = currentDeviceIdRef.current;
+
+      if (deviceId === null) {
+        failWithBubblesError(
+          `"${operationName}()" requires a backend "deviceId" before attributes can be synced.`,
+        );
+      }
+
+      await updateBubblesDeviceAttributes({
+        apiBaseUrl,
+        appKey,
+        deviceId,
+        attributes,
+      });
+    })().catch((error) => {
+      const normalizedError = normalizeProviderError(error);
+
+      if (isMountedRef.current) {
+        setState((currentState) => ({
+          ...currentState,
+          error: normalizedError,
+        }));
+      }
+
+      throw normalizedError;
     });
   }
 
@@ -226,7 +495,7 @@ export function BubblesNotificationsProvider(
     name: string,
     value: BubblesDeviceAttributeValue,
   ) {
-    return enqueueOperation(async () => {
+    return updateDeviceAttributes(() => {
       const attributeName = getRequiredNonEmptyString(name, 'attributeName');
 
       if (value === undefined) {
@@ -235,32 +504,16 @@ export function BubblesNotificationsProvider(
         );
       }
 
-      const deviceId = currentDeviceIdRef.current;
-
-      if (deviceId === null) {
-        failWithBubblesError(
-          '"addDeviceAttribute()" requires a backend "deviceId" before attributes can be synced.',
-        );
-      }
-
-      await updateBubblesDeviceAttributes({
-        apiBaseUrl,
-        appKey,
-        deviceId,
-        attributes: {
-          [attributeName]: value,
-        },
-      });
-    });
+      return {
+        [attributeName]: value,
+      };
+    }, 'addDeviceAttribute');
   }
 
   const contextValue = {
     registerDevice,
+    setDeviceAttributes,
     addDeviceAttribute,
-    deviceId: state.deviceId,
-    pushToken: state.pushToken,
-    tokenType: state.tokenType,
-    permissionStatus: state.permissionStatus,
     notificationsEnabled: state.notificationsEnabled,
     isSyncing: state.isSyncing,
     error: state.error,

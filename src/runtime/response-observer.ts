@@ -1,17 +1,15 @@
 import * as Notifications from 'expo-notifications';
 
-import { BUBBLES_DELIVERY_STATUSES } from '../api/delivery-status';
-import { postStoredBubblesDeliveryStatus } from '../notifications/delivery-status';
+import { observeStoredBubblesNotificationClicked } from '../notifications/delivery-status';
 import {
   getBubblesNotificationDataFromNotification,
   normalizeBubblesNotificationPayload,
 } from '../notifications/payload';
-import {
-  readStoredDeviceState,
-  type StoredDeviceState,
-} from '../storage/device-state';
 
 import type { BubblesNotificationResponseEvent } from './context';
+
+const MAX_HANDLED_RESPONSE_KEYS = 200;
+const handledResponseKeys = new Set<string>();
 
 export interface ObserveBubblesNotificationResponsesOptions {
   onNotificationResponse?: (
@@ -32,10 +30,28 @@ function buildNotificationResponseKey(
   );
 
   if (payload.notificationId) {
-    return `notification:${payload.notificationId}:action:${response.actionIdentifier}`;
+    return `notification:${payload.notificationId}`;
   }
 
-  return `request:${response.notification.request.identifier}:action:${response.actionIdentifier}`;
+  return `request:${response.notification.request.identifier}`;
+}
+
+function markNotificationResponseHandled(responseKey: string): boolean {
+  if (handledResponseKeys.has(responseKey)) {
+    return false;
+  }
+
+  handledResponseKeys.add(responseKey);
+
+  if (handledResponseKeys.size > MAX_HANDLED_RESPONSE_KEYS) {
+    const oldestResponseKey = handledResponseKeys.values().next().value;
+
+    if (oldestResponseKey) {
+      handledResponseKeys.delete(oldestResponseKey);
+    }
+  }
+
+  return true;
 }
 
 function logNotificationResponseError(
@@ -50,7 +66,6 @@ function logNotificationResponseError(
 
 function buildObservedNotificationResponse(
   response: Notifications.NotificationResponse,
-  storedDeviceState: StoredDeviceState,
 ): ObservedNotificationResponse {
   const payload = normalizeBubblesNotificationPayload(
     getBubblesNotificationDataFromNotification(response.notification),
@@ -62,23 +77,17 @@ function buildObservedNotificationResponse(
       notification: response.notification,
       url: payload.url,
       notificationId: payload.notificationId,
-      deviceId: storedDeviceState.deviceId,
       data: payload.data,
     },
   };
 }
 
 function postNotificationClickedDeliveryStatus(
-  storedDeviceState: StoredDeviceState,
   notificationId: string | null,
-  actionId: string,
 ) {
-  void postStoredBubblesDeliveryStatus({
+  void observeStoredBubblesNotificationClicked({
     source: 'notification response',
-    storedDeviceState,
     notificationId,
-    status: BUBBLES_DELIVERY_STATUSES.notificationClicked,
-    actionId,
   }).catch((error) => {
     logNotificationResponseError('delivery-status update', error);
   });
@@ -87,21 +96,11 @@ function postNotificationClickedDeliveryStatus(
 function handleNotificationResponse(
   response: Notifications.NotificationResponse,
   options: ObserveBubblesNotificationResponsesOptions,
-  source: 'startup' | 'listener',
 ) {
-  const storedDeviceState = readStoredDeviceState();
-  const observedResponse = buildObservedNotificationResponse(
-    response,
-    storedDeviceState,
-  );
-
-  postNotificationClickedDeliveryStatus(
-    storedDeviceState,
-    observedResponse.notificationId,
-    response.actionIdentifier,
-  );
+  const observedResponse = buildObservedNotificationResponse(response);
 
   options.onNotificationResponse?.(observedResponse.event);
+  postNotificationClickedDeliveryStatus(observedResponse.notificationId);
 }
 
 function processStartupNotificationResponse(
@@ -126,26 +125,19 @@ function processStartupNotificationResponse(
 export function observeBubblesNotificationResponses(
   options: ObserveBubblesNotificationResponsesOptions,
 ): () => void {
-  let lastHandledResponseKey: string | null = null;
-
   const processNotificationResponse = (
     response: Notifications.NotificationResponse,
   ) => {
     const responseKey = buildNotificationResponseKey(response);
 
-    if (lastHandledResponseKey === responseKey) {
+    if (!markNotificationResponseHandled(responseKey)) {
       return;
     }
 
-    lastHandledResponseKey = responseKey;
-    handleNotificationResponse(response, options, 'listener');
+    handleNotificationResponse(response, options);
   };
 
-  processStartupNotificationResponse((response) => {
-    const responseKey = buildNotificationResponseKey(response);
-    lastHandledResponseKey = responseKey;
-    handleNotificationResponse(response, options, 'startup');
-  });
+  processStartupNotificationResponse(processNotificationResponse);
 
   const subscription = Notifications.addNotificationResponseReceivedListener(
     processNotificationResponse,

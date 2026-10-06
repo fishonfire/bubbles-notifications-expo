@@ -1,10 +1,4 @@
 import { Platform } from 'react-native';
-import {
-  getMessaging,
-  getToken,
-  isDeviceRegisteredForRemoteMessages,
-  registerDeviceForRemoteMessages,
-} from '@react-native-firebase/messaging';
 
 import {
   describeNotificationPermissionStatus,
@@ -22,6 +16,7 @@ import { getBubblesNotificationsRuntimeConfig } from '../config/runtime-config';
 
 export type { SupportedPlatform } from '../internal/platform';
 export type NativeTokenType = 'fcm' | 'fid';
+type FirebaseMessagingModule = typeof import('@react-native-firebase/messaging');
 
 export type GetDeviceTokenOptions = GetNotificationPermissionsOptions;
 
@@ -40,10 +35,21 @@ export interface DeviceRegistrationState {
   notificationsEnabled: boolean;
 }
 
-async function getFirebaseMessagingToken(): Promise<string> {
+async function getFirebaseMessagingToken(
+  platform: SupportedPlatform,
+): Promise<string> {
+  const {
+    getMessaging,
+    getToken,
+    isDeviceRegisteredForRemoteMessages,
+    registerDeviceForRemoteMessages,
+  }: FirebaseMessagingModule = await import('@react-native-firebase/messaging');
   const messagingInstance = getMessaging();
 
-  if (!isDeviceRegisteredForRemoteMessages(messagingInstance)) {
+  if (
+    platform === 'android' &&
+    !isDeviceRegisteredForRemoteMessages(messagingInstance)
+  ) {
     await registerDeviceForRemoteMessages(messagingInstance);
   }
 
@@ -65,6 +71,7 @@ export async function getDeviceRegistrationState(
   const permissions = await getNotificationPermissions(options);
   const permissionStatus = describeNotificationPermissionStatus(permissions);
   const notificationsEnabled = isNotificationPermissionGranted(permissions);
+
 
   if (!notificationsEnabled) {
     return {
@@ -93,7 +100,7 @@ export async function getDeviceRegistrationState(
     };
   }
 
-  const token = await getFirebaseMessagingToken();
+  const token = await getFirebaseMessagingToken(platform);
 
   return {
     platform,
@@ -128,6 +135,12 @@ export async function getDeviceToken(
 export async function getFCMToken(
   options?: GetDeviceTokenOptions,
 ): Promise<string> {
-  const tokenResult = await getDeviceToken(options);
-  return tokenResult.token;
+  const platform = getSupportedPlatform(Platform.OS);
+  const permissions = await getNotificationPermissions(options);
+
+  if (!isNotificationPermissionGranted(permissions)) {
+    failWithBubblesError('Push notification permission was not granted.');
+  }
+
+  return getFirebaseMessagingToken(platform);
 }

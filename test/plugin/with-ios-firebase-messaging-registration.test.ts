@@ -18,6 +18,20 @@ class AppDelegate: ExpoAppDelegate {
 }
 `;
 
+const multilineSwiftAppDelegate = `import Expo
+import React
+
+@UIApplicationMain
+class AppDelegate: ExpoAppDelegate {
+  override func application(
+    _ application: UIApplication,
+    didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+  ) -> Bool {
+    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+  }
+}
+`;
+
 const objcAppDelegate = `#import "AppDelegate.h"
 
 @implementation AppDelegate
@@ -66,6 +80,21 @@ test('updateSwiftAppDelegateRegistration injects and removes FID registration st
 
   assert.doesNotMatch(disabled, /@fishonfire\/bubbles-expo-ios-firebase-messaging-registration/);
   assert.doesNotMatch(disabled, /Messaging\.messaging\(\)\.register/);
+});
+
+test('updateSwiftAppDelegateRegistration supports multiline Expo Swift AppDelegate signatures', () => {
+  const enabled = updateSwiftAppDelegateRegistration(
+    multilineSwiftAppDelegate,
+    true,
+  );
+
+  assert.match(enabled, /import FirebaseCore/);
+  assert.match(enabled, /import FirebaseMessaging/);
+  assert.match(enabled, /Messaging\.messaging\(\)\.register/);
+  assert.match(
+    enabled,
+    /Messaging\.messaging\(\)\.register[\s\S]*return super\.application/,
+  );
 });
 
 test('updateObjcAppDelegateRegistration injects and removes FID registration startup code', () => {

@@ -80,10 +80,15 @@ vi.doMock('expo-notifications', () => ({
 }));
 
 vi.doMock('../../src/notifications/delivery-status.ts', () => ({
-  postStoredBubblesDeliveryStatus: async (
+  observeStoredBubblesNotificationReceived: async (
     options: Record<string, unknown>,
   ) => {
-    deliveryStatusCalls.push(options);
+    deliveryStatusCalls.push({ ...options, status: 'received' });
+  },
+  observeStoredBubblesLocalDisplayRequested: async (
+    options: Record<string, unknown>,
+  ) => {
+    deliveryStatusCalls.push({ ...options, status: 'shown' });
   },
 }));
 
@@ -156,6 +161,11 @@ test('foreground message observer subscribes on supported platforms and schedule
     {
       source: 'Firebase foreground message',
       notificationId: 'notification-123',
+      status: 'received',
+    },
+    {
+      source: 'Firebase foreground message',
+      notificationId: 'notification-123',
       status: 'shown',
     },
   ]);
@@ -164,7 +174,7 @@ test('foreground message observer subscribes on supported platforms and schedule
   assert.equal(messagingCalls.unsubscribe, 1);
 });
 
-test('foreground message observer keeps data-only messages silent', async () => {
+test('foreground message observer reports data-only messages as received without displaying them', async () => {
   const cleanup = observeBubblesForegroundMessages();
 
   messagingCalls.onMessage[0]?.listener({
@@ -179,7 +189,45 @@ test('foreground message observer keeps data-only messages silent', async () => 
 
   assert.equal(notificationCalls.getPermissions, 0);
   assert.deepEqual(notificationCalls.schedule, []);
-  assert.deepEqual(deliveryStatusCalls, []);
+  assert.deepEqual(deliveryStatusCalls, [
+    {
+      source: 'Firebase foreground message',
+      notificationId: 'notification-data-only',
+      status: 'received',
+    },
+  ]);
+
+  cleanup();
+});
+
+test('foreground message observer reports display messages as received when local display is unavailable', async () => {
+  notificationState.permissions = {
+    granted: false,
+    status: 'denied',
+  };
+  const cleanup = observeBubblesForegroundMessages();
+
+  messagingCalls.onMessage[0]?.listener({
+    data: {
+      notification_id: 'notification-disabled',
+    },
+    notification: {
+      title: 'Foreground title',
+      body: 'Foreground body',
+    },
+  });
+
+  await flushMicrotasks();
+
+  assert.equal(notificationCalls.getPermissions, 1);
+  assert.deepEqual(notificationCalls.schedule, []);
+  assert.deepEqual(deliveryStatusCalls, [
+    {
+      source: 'Firebase foreground message',
+      notificationId: 'notification-disabled',
+      status: 'received',
+    },
+  ]);
 
   cleanup();
 });

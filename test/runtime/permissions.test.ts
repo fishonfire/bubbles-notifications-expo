@@ -213,6 +213,28 @@ test('getNotificationPermissions forwards the permission request options when pr
   assert.deepEqual(result, permissionState.requestResult);
 });
 
+test('getNotificationPermissions skips the blocking iOS permission check for explicit requests', async () => {
+  const result = await getNotificationPermissions({
+    requestPermissions: true,
+    permissionRequestOptions: {
+      ios: {
+        allowAlert: true,
+      },
+    },
+  });
+
+  assert.equal(ensureChannelCallCount, 1);
+  assert.equal(notificationCalls.getPermissions, 0);
+  assert.deepEqual(notificationCalls.requestPermissions, [
+    {
+      ios: {
+        allowAlert: true,
+      },
+    },
+  ]);
+  assert.deepEqual(result, permissionState.requestResult);
+});
+
 test('ensureNotificationPermissions throws with the current error text when permission remains denied', async () => {
   permissionState.requestResult = {
     granted: false,

@@ -47,6 +47,12 @@ export async function getNotificationPermissions(
 
   await ensureDefaultNotificationChannel();
 
+  if (options?.requestPermissions === true) {
+    return Notifications.requestPermissionsAsync(
+      options.permissionRequestOptions,
+    );
+  }
+
   const existingPermissions = await Notifications.getPermissionsAsync();
 
   if (
@@ -56,7 +62,9 @@ export async function getNotificationPermissions(
     return existingPermissions;
   }
 
-  return Notifications.requestPermissionsAsync(options?.permissionRequestOptions);
+  return Notifications.requestPermissionsAsync(
+    options?.permissionRequestOptions,
+  );
 }
 
 export async function ensureNotificationPermissions(

@@ -5,5 +5,5 @@
     "types": ["node"],
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "plugin/src", "test/**/*.ts"]
+  "include": ["src", "plugin/src", "test/**/*.ts", "test/**/*.tsx"]
 }

@@ -175,6 +175,26 @@ test('getDeviceRegistrationState registers remote messages before reading FCM to
   assert.equal(result.token, 'fcm-token-123');
 });
 
+test('getDeviceRegistrationState does not manually register remote messages before reading an iOS FCM token', async () => {
+  platform.OS = 'ios';
+  messagingState.isRegistered = false;
+
+  const result = await getDeviceRegistrationState();
+
+  assert.deepEqual(installationCalls, ['ios']);
+  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 0);
+  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 0);
+  assert.equal(messagingCalls.getToken, 1);
+  assert.deepEqual(result, {
+    platform: 'ios',
+    tokenType: 'fcm',
+    token: 'fcm-token-123',
+    fid: 'fid-123',
+    permissionStatus: 'granted',
+    notificationsEnabled: true,
+  });
+});
+
 test('getDeviceRegistrationState returns FID as token when Firebase installation push registration is enabled', async () => {
   runtimeConfigState.enableFirebaseInstallationPushRegistration = true;
 
@@ -189,6 +209,14 @@ test('getDeviceRegistrationState returns FID as token when Firebase installation
     notificationsEnabled: true,
   });
   assert.equal(messagingCalls.getToken, 0);
+});
+
+test('getFCMToken always returns the Firebase Messaging token when FID registration is enabled', async () => {
+  runtimeConfigState.enableFirebaseInstallationPushRegistration = true;
+
+  assert.equal(await getFCMToken(), 'fcm-token-123');
+  assert.deepEqual(installationCalls, []);
+  assert.equal(messagingCalls.getToken, 1);
 });
 
 test('getDeviceToken rejects when notification permission is not granted', async () => {

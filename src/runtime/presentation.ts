@@ -4,8 +4,8 @@ import {
   type EnsureDefaultNotificationChannelOptions,
 } from './channels';
 import {
-  applyBubblesNotificationHandler,
-  clearBubblesNotificationHandler,
+  acquireBubblesNotificationHandler,
+  updateBubblesNotificationHandler,
 } from './notification-handler';
 import {
   describeNotificationPermissionStatus,
@@ -34,14 +34,17 @@ export {
   isNotificationPermissionGranted,
 };
 
-export function applyBubblesForegroundPresentation(
-  options?: ForegroundPresentationOptions,
-): void {
-  applyBubblesNotificationHandler(options);
+export function acquireBubblesForegroundPresentation(
+  owner: object,
+): () => void {
+  return acquireBubblesNotificationHandler(owner);
 }
 
-export function clearBubblesForegroundPresentation(): void {
-  clearBubblesNotificationHandler();
+export function updateBubblesForegroundPresentation(
+  owner: object,
+  options?: ForegroundPresentationOptions,
+): void {
+  updateBubblesNotificationHandler(owner, options);
 }
 
 export function observeBubblesNotificationOpenEvents(

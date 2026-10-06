@@ -3,13 +3,12 @@ import {
   updateBubblesDeviceAttributes,
 } from '../api/device-client';
 import {
-  storeApiBaseUrl,
-  storeAppKey,
-  storeDeviceId,
+  patchStoredDeviceStateAsync,
+  storeDeviceIdAsync,
 } from '../storage/device-state';
+import { flushStoredBubblesDeliveryStatuses } from '../notifications/delivery-status';
 
 import {
-  getBubblesDeviceRegistrationState,
   type DeviceRegistrationState,
   type NativeTokenType,
 } from './transport';
@@ -24,15 +23,11 @@ interface BaseSyncDeviceOptions {
   appVersion?: string | null;
 }
 
-export interface SyncExistingBubblesDeviceOptions
-  extends BaseSyncDeviceOptions {
-  deviceId: string;
-}
-
 export interface SyncDeviceRegistrationStateOptions
   extends BaseSyncDeviceOptions {
   deviceId: string | null;
   registrationState: DeviceRegistrationState;
+  deferPostRegistrationWork?: boolean;
 }
 
 export interface BubblesNotificationsRuntimeSnapshot {
@@ -45,8 +40,15 @@ export interface BubblesNotificationsRuntimeSnapshot {
 
 export interface SyncBubblesNotificationsDeviceResult
   extends BubblesNotificationsRuntimeSnapshot {
-  action: 'created' | 'updated';
+  action: 'created' | 'updated' | 'unchanged';
+  attributeSync: BubblesDeviceAttributeSyncResult;
 }
+
+export type BubblesDeviceAttributeSyncResult =
+  | { status: 'succeeded'; error: null }
+  | { status: 'skipped'; error: null }
+  | { status: 'pending'; error: null }
+  | { status: 'failed'; error: Error };
 
 export class BubblesNotificationsSyncError extends Error {
   readonly snapshot: BubblesNotificationsRuntimeSnapshot;
@@ -103,24 +105,35 @@ function buildRuntimeSnapshot(
   };
 }
 
-async function syncBubblesDeviceAttributesBestEffort(
+async function syncBubblesDeviceAttributes(
   apiBaseUrl: string,
   appKey: string,
   deviceId: string,
-): Promise<void> {
+): Promise<BubblesDeviceAttributeSyncResult> {
   try {
     const attributes = await collectBubblesDeviceAttributes();
 
-    if (Object.keys(attributes).length > 0) {
-      await updateBubblesDeviceAttributes({
-        apiBaseUrl,
-        appKey,
-        deviceId,
-        attributes,
-      });
+    if (Object.keys(attributes).length === 0) {
+      return { status: 'skipped', error: null };
     }
-  } catch {
-    // Device attribute delivery is opportunistic and must not invalidate registration.
+
+    await updateBubblesDeviceAttributes({
+      apiBaseUrl,
+      appKey,
+      deviceId,
+      attributes,
+    });
+
+    return { status: 'succeeded', error: null };
+  } catch (error) {
+    const normalizedError = toError(error);
+
+    console.error(
+      '[@fishonfire/bubbles-expo] Failed to synchronize built-in device attributes after device registration.',
+      normalizedError,
+    );
+
+    return { status: 'failed', error: normalizedError };
   }
 }
 
@@ -129,8 +142,10 @@ export async function syncDeviceRegistrationState(
 ): Promise<SyncBubblesNotificationsDeviceResult> {
   const apiBaseUrl = getRequiredNonEmptyString(options.apiBaseUrl, 'apiBaseUrl');
   const appKey = getRequiredNonEmptyString(options.appKey, 'appKey');
-  storeApiBaseUrl(apiBaseUrl);
-  storeAppKey(appKey);
+  await patchStoredDeviceStateAsync({
+    apiBaseUrl,
+    appKey,
+  });
 
   const snapshot = buildRuntimeSnapshot(
     options.deviceId,
@@ -156,20 +171,43 @@ export async function syncDeviceRegistrationState(
     });
     const nextDeviceId = syncResult.deviceId ?? options.deviceId;
 
-    storeDeviceId(nextDeviceId);
+    const storedDeviceState = await storeDeviceIdAsync(nextDeviceId);
+
+    let attributeSync: BubblesDeviceAttributeSyncResult = {
+      status: 'skipped',
+      error: null,
+    };
 
     if (nextDeviceId) {
-      await syncBubblesDeviceAttributesBestEffort(
-        apiBaseUrl,
-        appKey,
-        nextDeviceId,
-      );
+      const syncAttributes = () => syncBubblesDeviceAttributes(apiBaseUrl, appKey, nextDeviceId);
+      const flushDeliveryStatuses = async () => {
+        try {
+          await flushStoredBubblesDeliveryStatuses(storedDeviceState);
+        } catch (error) {
+          console.error(
+            '[@fishonfire/bubbles-expo] Failed to flush stored delivery statuses after device synchronization.',
+            error,
+          );
+        }
+      };
+
+      if (options.deferPostRegistrationWork) {
+        // Neither task controls enrollment success. Each handles its own errors,
+        // and a slow delivery-status request must not delay attribute syncing.
+        attributeSync = { status: 'pending', error: null };
+        void flushDeliveryStatuses();
+        void syncAttributes();
+      } else {
+        await flushDeliveryStatuses();
+        attributeSync = await syncAttributes();
+      }
     }
 
     return {
       ...snapshot,
       action: syncResult.action,
       deviceId: nextDeviceId,
+      attributeSync,
     };
   } catch (error) {
     const normalizedError = toError(error);
@@ -180,18 +218,4 @@ export async function syncDeviceRegistrationState(
       error,
     );
   }
-}
-
-export async function syncExistingBubblesDevice(
-  options: SyncExistingBubblesDeviceOptions,
-): Promise<SyncBubblesNotificationsDeviceResult> {
-  const registrationState = await getBubblesDeviceRegistrationState({
-    requestPermissions: false,
-  });
-
-  return syncDeviceRegistrationState({
-    ...options,
-    deviceId: options.deviceId,
-    registrationState,
-  });
 }

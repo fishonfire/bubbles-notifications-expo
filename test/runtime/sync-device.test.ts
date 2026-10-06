@@ -14,7 +14,9 @@ const attributeCalls: Array<Record<string, unknown>> = [];
 const storedApiBaseUrls: string[] = [];
 const storedAppKeys: string[] = [];
 const storedDeviceIds: Array<string | null> = [];
-const tokenCalls: Array<Record<string, unknown>> = [];
+const deliveryStatusFlushCalls: Array<Record<string, unknown>> = [];
+let deliveryStatusFlushError: Error | null = null;
+let deferredFlush: Promise<void> | null = null;
 const syncState: {
   implementation: () => Promise<SyncResult>;
 } = {
@@ -54,12 +56,6 @@ const tokenState: {
     notificationsEnabled: true,
   },
 };
-const installationCalls: string[] = [];
-const installationState: {
-  installationId: string;
-} = {
-  installationId: 'fid-123',
-};
 
 vi.doMock('../../src/api/device-client.ts', () => ({
   syncBubblesDevice: async (options: Record<string, unknown>) => {
@@ -77,25 +73,41 @@ vi.doMock('../../src/runtime/device-attributes.ts', () => ({
     attributeCollectionState.implementation(),
 }));
 
+vi.doMock('../../src/notifications/delivery-status.ts', () => ({
+  flushStoredBubblesDeliveryStatuses: async (
+    storedDeviceState: Record<string, unknown>,
+  ) => {
+    deliveryStatusFlushCalls.push(storedDeviceState);
+    await deferredFlush;
+
+    if (deliveryStatusFlushError) {
+      throw deliveryStatusFlushError;
+    }
+  },
+}));
+
 vi.doMock('../../src/storage/device-state.ts', () => ({
-  storeApiBaseUrl: (value: string) => {
-    storedApiBaseUrls.push(value);
+  patchStoredDeviceStateAsync: async (
+    value: {
+      apiBaseUrl?: string | null;
+      appKey?: string | null;
+    },
+  ) => {
+    if ('apiBaseUrl' in value) {
+      storedApiBaseUrls.push(value.apiBaseUrl as string);
+    }
+
+    if ('appKey' in value) {
+      storedAppKeys.push(value.appKey as string);
+    }
+
     return {
       deviceId: null,
-      apiBaseUrl: value,
+      apiBaseUrl: storedApiBaseUrls[storedApiBaseUrls.length - 1] ?? null,
       appKey: storedAppKeys[storedAppKeys.length - 1] ?? null,
     };
   },
-  storeAppKey: (value: string) => {
-    storedAppKeys.push(value);
-    return {
-      deviceId: null,
-      apiBaseUrl:
-        storedApiBaseUrls[storedApiBaseUrls.length - 1] ?? null,
-      appKey: value,
-    };
-  },
-  storeDeviceId: (value: string | null) => {
+  storeDeviceIdAsync: async (value: string | null) => {
     storedDeviceIds.push(value);
     return {
       deviceId: value,
@@ -106,23 +118,9 @@ vi.doMock('../../src/storage/device-state.ts', () => ({
   },
 }));
 
-vi.doMock('../../src/runtime/transport.ts', () => ({
-  getBubblesDeviceRegistrationState: async (
-    options: Record<string, unknown>,
-  ) => {
-    tokenCalls.push(options);
-    return tokenState.registrationState;
-  },
-  getBubblesInstallationId: async (platform: string) => {
-    installationCalls.push(platform);
-    return installationState.installationId;
-  },
-}));
-
 const {
   BubblesNotificationsSyncError,
   syncDeviceRegistrationState,
-  syncExistingBubblesDevice,
 } = await import('../../src/runtime/sync-device.ts');
 
 beforeEach(() => {
@@ -131,8 +129,9 @@ beforeEach(() => {
   storedApiBaseUrls.length = 0;
   storedAppKeys.length = 0;
   storedDeviceIds.length = 0;
-  tokenCalls.length = 0;
-  installationCalls.length = 0;
+  deliveryStatusFlushCalls.length = 0;
+  deliveryStatusFlushError = null;
+  deferredFlush = null;
   syncState.implementation = async () => ({
     action: 'created',
     deviceId: 'created-device-id',
@@ -170,10 +169,16 @@ test('syncDeviceRegistrationState stores base URL, sends FCM token with FID, and
     registrationState: tokenState.registrationState,
   });
 
-  assert.deepEqual(installationCalls, []);
   assert.deepEqual(storedApiBaseUrls, ['https://api.example.com']);
   assert.deepEqual(storedAppKeys, ['app-key-1']);
   assert.deepEqual(storedDeviceIds, ['created-device-id']);
+  assert.deepEqual(deliveryStatusFlushCalls, [
+    {
+      deviceId: 'created-device-id',
+      apiBaseUrl: 'https://api.example.com',
+      appKey: 'app-key-1',
+    },
+  ]);
   assert.deepEqual(attributeCalls, [
     {
       apiBaseUrl: 'https://api.example.com',
@@ -212,6 +217,10 @@ test('syncDeviceRegistrationState stores base URL, sends FCM token with FID, and
     tokenType: 'fcm',
     permissionStatus: 'granted',
     notificationsEnabled: true,
+    attributeSync: {
+      status: 'succeeded',
+      error: null,
+    },
   });
 });
 
@@ -264,7 +273,6 @@ test('syncDeviceRegistrationState skips installation-id lookup when notification
     registrationState: tokenState.registrationState,
   });
 
-  assert.deepEqual(installationCalls, []);
   assert.equal(syncCalls[0]?.fid, null);
   assert.deepEqual(attributeCalls, [
     {
@@ -289,6 +297,10 @@ test('syncDeviceRegistrationState skips installation-id lookup when notification
     tokenType: null,
     permissionStatus: 'denied',
     notificationsEnabled: false,
+    attributeSync: {
+      status: 'succeeded',
+      error: null,
+    },
   });
 });
 
@@ -325,9 +337,11 @@ test('syncDeviceRegistrationState wraps sync failures with a snapshot-rich error
   assert.deepEqual(storedDeviceIds, []);
 });
 
-test('syncDeviceRegistrationState ignores attribute collection failures after registration succeeds', async () => {
+test('syncDeviceRegistrationState reports attribute collection failures after registration succeeds', async () => {
+  const attributeError = new Error('attribute collection failed');
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
   attributeCollectionState.implementation = async () => {
-    throw new Error('attribute collection failed');
+    throw attributeError;
   };
 
   const result = await syncDeviceRegistrationState({
@@ -348,12 +362,21 @@ test('syncDeviceRegistrationState ignores attribute collection failures after re
     tokenType: 'fcm',
     permissionStatus: 'granted',
     notificationsEnabled: true,
+    attributeSync: {
+      status: 'failed',
+      error: attributeError,
+    },
   });
+  assert.equal(consoleError.mock.calls.length, 1);
+
+  consoleError.mockRestore();
 });
 
-test('syncDeviceRegistrationState ignores attribute update failures after registration succeeds', async () => {
+test('syncDeviceRegistrationState reports attribute update failures after registration succeeds', async () => {
+  const attributeError = new Error('attribute update failed');
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
   attributeState.implementation = async () => {
-    throw new Error('attribute update failed');
+    throw attributeError;
   };
 
   const result = await syncDeviceRegistrationState({
@@ -374,27 +397,59 @@ test('syncDeviceRegistrationState ignores attribute update failures after regist
     tokenType: 'fcm',
     permissionStatus: 'granted',
     notificationsEnabled: true,
+    attributeSync: {
+      status: 'failed',
+      error: attributeError,
+    },
   });
+  assert.equal(consoleError.mock.calls.length, 1);
+
+  consoleError.mockRestore();
 });
 
-test('syncExistingBubblesDevice uses non-prompting registration state lookup', async () => {
-  syncState.implementation = async () => ({
-    action: 'updated',
-    deviceId: 'device-999',
-    response: { id: 'device-999' },
-  });
+test('syncDeviceRegistrationState keeps registration successful when delivery-status flush fails', async () => {
+  deliveryStatusFlushError = new Error('delivery status unavailable');
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-  const result = await syncExistingBubblesDevice({
-    appId: 'app-999',
-    appKey: 'app-key-4',
+  const result = await syncDeviceRegistrationState({
+    appId: 'app-delivery-status',
+    appKey: 'app-key-delivery-status',
     apiBaseUrl: 'https://api.example.com',
-    userId: 'user-999',
-    deviceId: 'device-999',
+    userId: 'user-delivery-status',
+    deviceId: null,
+    registrationState: tokenState.registrationState,
   });
 
-  assert.deepEqual(tokenCalls, [{ requestPermissions: false }]);
-  assert.equal(syncCalls[0]?.deviceId, 'device-999');
-  assert.equal(syncCalls[0]?.pushToken, 'fcm-token-123');
-  assert.equal(syncCalls[0]?.fid, 'fid-123');
-  assert.equal(result.action, 'updated');
+  assert.equal(result.deviceId, 'created-device-id');
+  assert.equal(deliveryStatusFlushCalls.length, 1);
+  assert.equal(attributeCalls.length, 1);
+  assert.equal(consoleError.mock.calls.length, 1);
+
+  consoleError.mockRestore();
+});
+
+test('deferred post-registration requests do not hold up enrollment or each other', async () => {
+  let finishAttributes!: () => void;
+  let finishFlush!: () => void;
+  const attributeRequest = new Promise<void>(resolve => { finishAttributes = resolve; });
+  const flushRequest = new Promise<void>(resolve => { finishFlush = resolve; });
+  attributeState.implementation = async () => attributeRequest;
+  deferredFlush = flushRequest;
+
+  const result = await syncDeviceRegistrationState({
+    appId: 'app-123', appKey: 'app-key-123', apiBaseUrl: 'https://api.example.com',
+    userId: 'user-123', deviceId: null, registrationState: tokenState.registrationState,
+    deferPostRegistrationWork: true,
+  });
+
+  assert.equal(result.deviceId, 'created-device-id');
+  assert.deepEqual(storedDeviceIds, ['created-device-id']);
+  assert.equal(result.attributeSync.status, 'pending');
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+  assert.equal(deliveryStatusFlushCalls.length, 1);
+  assert.equal(attributeCalls.length, 1);
+
+  finishAttributes();
+  finishFlush();
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
 });

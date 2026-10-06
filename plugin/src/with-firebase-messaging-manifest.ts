@@ -84,9 +84,6 @@ const withFirebaseMessagingManifest: ConfigPlugin<
         application,
         getAndroidPackageName(config),
       );
-    } else {
-      removeManifestMetaData(application, FCM_INSTALLATION_ID_ENABLED);
-      removeManifestProvider(application, BUBBLES_FIREBASE_MESSAGING_REGISTRAR);
     }
 
     // Expo only creates the FCM color metadata when a notification
@@ -154,24 +151,6 @@ function removeManifestService(
 ): void {
   application.service = (application.service ?? []).filter(
     item => item.$['android:name'] !== serviceName,
-  );
-}
-
-function removeManifestMetaData(
-  application: AndroidConfig.Manifest.ManifestApplication,
-  name: string,
-): void {
-  application['meta-data'] = (application['meta-data'] ?? []).filter(
-    item => item.$['android:name'] !== name,
-  );
-}
-
-function removeManifestProvider(
-  application: ManifestApplicationWithProvider,
-  name: string,
-): void {
-  application.provider = (application.provider ?? []).filter(
-    item => item.$['android:name'] !== name,
   );
 }
 
