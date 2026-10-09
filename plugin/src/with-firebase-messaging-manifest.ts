@@ -72,17 +72,30 @@ const withFirebaseMessagingManifest: ConfigPlugin<
       setToolsReplace(channel.$, 'android:value');
     }
 
-    AndroidConfig.Manifest.addMetaDataItemToMainApplication(
-      application,
-      FCM_INSTALLATION_ID_ENABLED,
-      'true',
-      'value',
-    );
+    if (options.enableFirebaseInstallationPushRegistration) {
+      AndroidConfig.Manifest.addMetaDataItemToMainApplication(
+        application,
+        FCM_INSTALLATION_ID_ENABLED,
+        'true',
+        'value',
+      );
 
-    addBubblesFirebaseMessagingRegistrationEntries(
-      application,
-      getAndroidPackageName(config),
-    );
+      addBubblesFirebaseMessagingRegistrationEntries(
+        application,
+        getAndroidPackageName(config),
+      );
+    } else {
+      application['meta-data'] = (application['meta-data'] ?? []).filter(
+        item => item.$['android:name'] !== FCM_INSTALLATION_ID_ENABLED,
+      );
+      const applicationWithProvider =
+        application as ManifestApplicationWithProvider;
+      applicationWithProvider.provider =
+        (applicationWithProvider.provider ?? []).filter(
+          item => item.$['android:name'] !== BUBBLES_FIREBASE_MESSAGING_REGISTRAR,
+        );
+      removeManifestService(application, BUBBLES_FIREBASE_MESSAGING_SERVICE);
+    }
 
     // Expo only creates the FCM color metadata when a notification
     // color has actually been configured.

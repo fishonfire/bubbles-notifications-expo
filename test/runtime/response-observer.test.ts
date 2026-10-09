@@ -23,11 +23,6 @@ const notificationSubscriptions = {
   removeCallCount: 0,
   lastResponse: null as MockNotificationResponse | null,
 };
-const storedDeviceState = {
-  deviceId: 'device-123',
-  apiBaseUrl: 'https://api.example.com',
-  appKey: 'app-key-123',
-};
 const deliveryStatusCalls: Array<Record<string, unknown>> = [];
 const callbackEvents: BubblesNotificationResponseEvent[] = [];
 
@@ -50,14 +45,11 @@ vi.doMock('expo-notifications', () => ({
   },
 }));
 
-vi.doMock('../../src/storage/device-state.ts', () => ({
-  readStoredDeviceState: () => storedDeviceState,
-}));
-
 vi.doMock('../../src/notifications/delivery-status.ts', () => ({
-  postStoredBubblesDeliveryStatus: async (options: Record<string, unknown>) => {
-    deliveryStatusCalls.push(options);
-    return storedDeviceState;
+  observeStoredBubblesNotificationClicked: async (
+    options: Record<string, unknown>,
+  ) => {
+    deliveryStatusCalls.push({ ...options, status: 'clicked' });
   },
 }));
 
@@ -106,7 +98,7 @@ beforeEach(() => {
   callbackEvents.length = 0;
 });
 
-test('processes the last notification response on startup and delegates navigation data', () => {
+test('processes the last notification response on startup and delegates navigation data', async () => {
   notificationSubscriptions.lastResponse = createResponse('notif-1', {
     url: '/fish',
     notification_id: 'notification-1',
@@ -119,15 +111,6 @@ test('processes the last notification response on startup and delegates navigati
     },
   });
 
-  assert.deepEqual(deliveryStatusCalls, [
-    {
-      source: 'notification response',
-      storedDeviceState,
-      notificationId: 'notification-1',
-      status: 'clicked',
-      actionId: 'expo.modules.notifications.actions.DEFAULT',
-    },
-  ]);
   assert.equal(notificationSubscriptions.clearCallCount, 1);
   assert.deepEqual(callbackEvents, [
     {
@@ -137,9 +120,16 @@ test('processes the last notification response on startup and delegates navigati
         notification_id: 'notification-1',
         custom: 'value',
       },
-      deviceId: 'device-123',
       url: '/fish',
       notificationId: 'notification-1',
+    },
+  ]);
+
+  assert.deepEqual(deliveryStatusCalls, [
+    {
+      source: 'notification response',
+      notificationId: 'notification-1',
+      status: 'clicked',
     },
   ]);
 
@@ -147,7 +137,7 @@ test('processes the last notification response on startup and delegates navigati
   assert.equal(notificationSubscriptions.removeCallCount, 1);
 });
 
-test('deduplicates repeated responses with the same response key while handling distinct live taps', () => {
+test('deduplicates repeated responses with the same response key while handling distinct live taps', async () => {
   const repeatedResponse = createResponse('notif-2', {
     url: '/explore',
     notification_id: 'notification-2',
@@ -179,7 +169,6 @@ test('deduplicates repeated responses with the same response key while handling 
         notification: repeatedResponse.notification,
         url: '/explore',
         notificationId: 'notification-2',
-        deviceId: 'device-123',
         data: {
           url: '/explore',
           notification_id: 'notification-2',
@@ -189,7 +178,6 @@ test('deduplicates repeated responses with the same response key while handling 
         notification: distinctResponse.notification,
         url: '/home',
         notificationId: 'notification-3',
-        deviceId: 'device-123',
         data: {
           url: '/home',
           notification_id: 'notification-3',
@@ -199,7 +187,7 @@ test('deduplicates repeated responses with the same response key while handling 
   );
 });
 
-test('deduplicates responses with the same notification id and action across request identifiers', () => {
+test('deduplicates responses with the same notification id across request identifiers', async () => {
   const startupResponse = createResponse('expo-request-1', {
     url: '/explore',
     notification_id: 'notification-shared',
@@ -217,7 +205,6 @@ test('deduplicates responses with the same notification id and action across req
   });
 
   notificationSubscriptions.listener?.(liveResponse);
-
   assert.deepEqual(
     deliveryStatusCalls.map((call) => call.notificationId),
     ['notification-shared'],
@@ -225,7 +212,7 @@ test('deduplicates responses with the same notification id and action across req
   assert.equal(callbackEvents.length, 1);
 });
 
-test('treats different action identifiers for the same notification identifier as distinct responses', () => {
+test('deduplicates different action identifiers for the same notification', async () => {
   const defaultActionResponse = createResponse('notif-4', {
     url: '/offers',
     notification_id: 'notification-4',
@@ -247,7 +234,50 @@ test('treats different action identifiers for the same notification identifier a
 
   notificationSubscriptions.listener?.(defaultActionResponse);
   notificationSubscriptions.listener?.(customActionResponse);
+  assert.equal(deliveryStatusCalls.length, 1);
+  assert.equal(callbackEvents.length, 1);
+});
 
-  assert.equal(deliveryStatusCalls.length, 2);
-  assert.equal(callbackEvents.length, 2);
+test('preserves response deduplication when the callback identity changes', () => {
+  const response = createResponse('notif-callback-change', {
+    url: '/account',
+    notification_id: 'notification-callback-change',
+  });
+  notificationSubscriptions.lastResponse = response;
+
+  const cleanup = observeBubblesNotificationResponses({
+    onNotificationResponse(event) {
+      callbackEvents.push(event);
+    },
+  });
+
+  cleanup();
+  observeBubblesNotificationResponses({
+    onNotificationResponse(event) {
+      callbackEvents.push(event);
+    },
+  });
+
+  notificationSubscriptions.listener?.(response);
+
+  assert.equal(deliveryStatusCalls.length, 1);
+  assert.equal(callbackEvents.length, 1);
+});
+
+test('queues clicked status even when the application callback throws', () => {
+  const response = createResponse('callback-failure', {
+    notification_id: 'notification-callback-failure',
+  });
+  const cleanup = observeBubblesNotificationResponses({
+    onNotificationResponse() { throw new Error('callback failed'); },
+  });
+
+  assert.throws(() => notificationSubscriptions.listener?.(response), /callback failed/);
+  notificationSubscriptions.listener?.(response);
+  assert.deepEqual(deliveryStatusCalls, [{
+    source: 'notification response',
+    notificationId: 'notification-callback-failure',
+    status: 'clicked',
+  }]);
+  cleanup();
 });

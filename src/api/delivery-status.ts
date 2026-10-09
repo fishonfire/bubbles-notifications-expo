@@ -19,11 +19,10 @@ type DeviceClientFactoryOptions = Omit<DeviceClientOptions, 'baseUrl'>;
 /**
  * Public delivery status labels accepted by the Bubbles device API.
  *
- * Client-side notification callbacks are source-specific observations:
- * "received" means app-observed, "shown" may be
- * confirmed/requested/inferred depending on source, "clicked"
- * means app-observed user interaction, and "disabled" describes
- * permission/device capability.
+ * Client-side notification callbacks are observations: "received" means
+ * JavaScript observed a remote message, "shown" means local display was
+ * successfully requested, "clicked" means Expo observed a user response,
+ * and "disabled" describes permission/device capability.
  */
 export const BUBBLES_DELIVERY_STATUSES = {
   notificationReceived: 'received',

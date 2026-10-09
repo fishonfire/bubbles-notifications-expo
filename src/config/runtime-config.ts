@@ -23,6 +23,24 @@ export interface BubblesNotificationsRuntimeConfig {
   defaultChannelId: string;
   defaultChannelName: string;
   androidChannelImportance: AndroidChannelImportance;
+  enableFirebaseInstallationPushRegistration: boolean;
+}
+
+function getBooleanWithDefault(
+  value: unknown,
+  fallback: boolean,
+): boolean {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value !== 'boolean') {
+    failWithBubblesError(
+      '"expo.extra.bubblesNotificationsExpo.enableFirebaseInstallationPushRegistration" must be a boolean.',
+    );
+  }
+
+  return value;
 }
 
 function getAndroidChannelImportance(
@@ -88,6 +106,10 @@ export function getBubblesNotificationsRuntimeConfig(): BubblesNotificationsRunt
     androidChannelImportance: getAndroidChannelImportance(
       runtimeConfig.androidChannelImportance,
       `expo.extra.${BUBBLES_NOTIFICATIONS_EXPO_EXTRA_KEY}.androidChannelImportance`,
+    ),
+    enableFirebaseInstallationPushRegistration: getBooleanWithDefault(
+      runtimeConfig.enableFirebaseInstallationPushRegistration,
+      false,
     ),
   };
 }

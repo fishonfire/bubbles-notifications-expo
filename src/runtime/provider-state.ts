@@ -1,5 +1,3 @@
-import { readStoredDeviceId } from '../storage/device-state';
-
 import type { BubblesNotificationsRuntimeSnapshot } from './sync-device';
 import type { NativeTokenType } from './tokens';
 
@@ -21,18 +19,6 @@ export type RuntimeStateUpdate = Pick<
   | 'permissionStatus'
   | 'notificationsEnabled'
 >;
-
-export type RuntimeOperation = () => Promise<RuntimeStateUpdate | void>;
-
-export interface AutomaticSyncSignatureInput {
-  appId: string | number;
-  appKey: string;
-  apiBaseUrl: string;
-  userId: string;
-  aliasing?: string[] | null;
-  appVersion?: string | null;
-  deviceId: string;
-}
 
 function createInitialRuntimeState(
   deviceId: string | null,
@@ -57,27 +43,15 @@ export function normalizeProviderError(error: unknown): Error {
   return new Error(String(error));
 }
 
-export function normalizeUserId(value: string | null): string | null {
-  if (value === null) {
+export function normalizeUserId(
+  value: string | null | undefined,
+): string | null {
+  if (typeof value !== 'string') {
     return null;
   }
 
   const trimmedValue = value.trim();
   return trimmedValue.length > 0 ? trimmedValue : null;
-}
-
-export function getAutomaticSyncSignature(
-  input: AutomaticSyncSignatureInput,
-): string {
-  return JSON.stringify({
-    appId: input.appId,
-    appKey: input.appKey,
-    apiBaseUrl: input.apiBaseUrl,
-    userId: input.userId,
-    aliasing: input.aliasing ?? [],
-    appVersion: input.appVersion ?? null,
-    deviceId: input.deviceId,
-  });
 }
 
 export function getRuntimeStateUpdate(
@@ -93,12 +67,5 @@ export function getRuntimeStateUpdate(
 }
 
 export function getInitialRuntimeState(): BubblesNotificationsRuntimeState {
-  try {
-    return createInitialRuntimeState(readStoredDeviceId(), null);
-  } catch (error) {
-    return createInitialRuntimeState(
-      null,
-      normalizeProviderError(error),
-    );
-  }
+  return createInitialRuntimeState(null, null);
 }

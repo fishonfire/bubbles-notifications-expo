@@ -1,4 +1,5 @@
 import { File, Paths } from 'expo-file-system';
+import { writeAsStringAsync } from 'expo-file-system/legacy';
 
 import type { BubblesDeliveryStatus } from '../api/delivery-status';
 import { failWithBubblesError } from '../internal/errors';
@@ -7,14 +8,16 @@ import { isPlainObject } from '../internal/validation';
 const DELIVERY_STATUS_LEDGER_FILE_NAME =
   'bubbles-notifications-expo-delivery-status-ledger.json';
 const DELIVERY_STATUS_LEDGER_VERSION = 1 as const;
+const MAX_PENDING_EVENT_COUNT = 200;
+const MAX_PENDING_EVENT_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const MAX_POSTED_EVENT_KEYS = 200;
+let deliveryStatusLedgerServiceQueue: Promise<unknown> = Promise.resolve();
 
 export interface StoredDeliveryStatusEvent {
   key: string;
   notificationId: string;
   status?: BubblesDeliveryStatus;
   error?: string;
-  actionId?: string;
   createdAt: string;
 }
 
@@ -27,7 +30,6 @@ export interface CreateStoredDeliveryStatusEventOptions {
   notificationId: string;
   status?: BubblesDeliveryStatus;
   error?: string | null;
-  actionId?: string | null;
 }
 
 type PersistedDeliveryStatusLedger = {
@@ -76,7 +78,6 @@ export function buildStoredDeliveryStatusEventKey(
     options.notificationId,
     options.status ?? null,
     options.error ?? null,
-    options.actionId ?? null,
   ]);
 }
 
@@ -84,19 +85,16 @@ export function createStoredDeliveryStatusEvent(
   options: CreateStoredDeliveryStatusEventOptions,
 ): StoredDeliveryStatusEvent {
   const error = getOptionalNonEmptyString(options.error);
-  const actionId = getOptionalNonEmptyString(options.actionId);
 
   return {
     key: buildStoredDeliveryStatusEventKey({
       notificationId: options.notificationId,
       status: options.status,
       error,
-      actionId,
     }),
     notificationId: options.notificationId,
     ...(options.status ? { status: options.status } : {}),
     ...(error ? { error } : {}),
-    ...(actionId ? { actionId } : {}),
     createdAt: new Date().toISOString(),
   };
 }
@@ -113,29 +111,86 @@ function normalizeStoredDeliveryStatusEvent(
     | BubblesDeliveryStatus
     | undefined;
   const error = getOptionalNonEmptyString(value.error);
-  const actionId = getOptionalNonEmptyString(value.actionId);
+  const notificationId = requireString(
+    value.notificationId,
+    `${sourceDescription}.notificationId`,
+  );
 
   return {
-    key: requireString(value.key, `${sourceDescription}.key`),
-    notificationId: requireString(
-      value.notificationId,
-      `${sourceDescription}.notificationId`,
-    ),
+    key: buildStoredDeliveryStatusEventKey({
+      notificationId,
+      status,
+      error,
+    }),
+    notificationId,
     ...(status ? { status } : {}),
     ...(error ? { error } : {}),
-    ...(actionId ? { actionId } : {}),
     createdAt: requireString(value.createdAt, `${sourceDescription}.createdAt`),
   };
 }
 
-function normalizeStringArray(value: unknown): string[] {
+function normalizeStoredDeliveryStatusEventKey(value: unknown): string | null {
+  const key = getOptionalNonEmptyString(value);
+
+  if (!key) {
+    return null;
+  }
+
+  try {
+    const keyParts: unknown = JSON.parse(key);
+
+    if (Array.isArray(keyParts) && keyParts.length === 4) {
+      return JSON.stringify(keyParts.slice(0, 3));
+    }
+  } catch {
+    return key;
+  }
+
+  return key;
+}
+
+function normalizeStoredDeliveryStatusEventKeys(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
   }
 
-  return value
-    .map((item) => getOptionalNonEmptyString(item))
-    .filter((item): item is string => item !== undefined);
+  return Array.from(
+    new Set(
+      value
+        .map(normalizeStoredDeliveryStatusEventKey)
+        .filter((item): item is string => item !== null),
+    ),
+  );
+}
+
+function boundPendingEvents(
+  pendingEvents: StoredDeliveryStatusEvent[],
+  now = Date.now(),
+): StoredDeliveryStatusEvent[] {
+  // Retain the newest 200 events for at most seven days.
+  const oldestAllowedTimestamp = now - MAX_PENDING_EVENT_AGE_MS;
+
+  const boundedEvents = pendingEvents
+    .filter((event) => {
+      const createdAtTimestamp = Date.parse(event.createdAt);
+
+      return (
+        Number.isFinite(createdAtTimestamp) &&
+        createdAtTimestamp >= oldestAllowedTimestamp
+      );
+    })
+    .slice(-MAX_PENDING_EVENT_COUNT);
+
+  const seenEventKeys = new Set<string>();
+
+  return boundedEvents.filter((event) => {
+    if (seenEventKeys.has(event.key)) {
+      return false;
+    }
+
+    seenEventKeys.add(event.key);
+    return true;
+  });
 }
 
 function normalizeDeliveryStatusLedger(
@@ -156,18 +211,23 @@ function normalizeDeliveryStatusLedger(
     );
   }
 
+  const postedEventKeys = normalizeStoredDeliveryStatusEventKeys(
+    value.postedEventKeys,
+  );
+  const postedEventKeySet = new Set(postedEventKeys);
+
   return {
-    pendingEvents: Array.isArray(value.pendingEvents)
-      ? value.pendingEvents.map((event, index) =>
-          normalizeStoredDeliveryStatusEvent(
-            event,
-            `${sourceDescription}.pendingEvents[${index}]`,
-          ),
-        )
-      : [],
-    postedEventKeys: normalizeStringArray(value.postedEventKeys).slice(
-      -MAX_POSTED_EVENT_KEYS,
-    ),
+    pendingEvents: boundPendingEvents(
+      Array.isArray(value.pendingEvents)
+        ? value.pendingEvents.map((event, index) =>
+            normalizeStoredDeliveryStatusEvent(
+              event,
+              `${sourceDescription}.pendingEvents[${index}]`,
+            ),
+          )
+        : [],
+    ).filter(event => !postedEventKeySet.has(event.key)),
+    postedEventKeys: postedEventKeys.slice(-MAX_POSTED_EVENT_KEYS),
   };
 }
 
@@ -176,7 +236,7 @@ function serializeDeliveryStatusLedger(
 ): PersistedDeliveryStatusLedger {
   return {
     version: DELIVERY_STATUS_LEDGER_VERSION,
-    pendingEvents: ledger.pendingEvents,
+    pendingEvents: boundPendingEvents(ledger.pendingEvents),
     postedEventKeys: ledger.postedEventKeys.slice(-MAX_POSTED_EVENT_KEYS),
   };
 }
@@ -192,6 +252,17 @@ function readDeliveryStatusLedgerFileText(): string | null {
   return contents.length > 0 ? contents : null;
 }
 
+async function readDeliveryStatusLedgerFileTextAsync(): Promise<string | null> {
+  const ledgerFile = getDeliveryStatusLedgerFile();
+
+  if (!ledgerFile.exists) {
+    return null;
+  }
+
+  const contents = (await ledgerFile.text()).trim();
+  return contents.length > 0 ? contents : null;
+}
+
 function ensureDeliveryStatusLedgerFile() {
   const ledgerFile = getDeliveryStatusLedgerFile();
 
@@ -200,6 +271,16 @@ function ensureDeliveryStatusLedgerFile() {
   }
 
   return ledgerFile;
+}
+
+export function runDeliveryStatusLedgerServiceOperation<Result>(
+  operation: () => Promise<Result>,
+): Promise<Result> {
+  const queuedOperation = deliveryStatusLedgerServiceQueue.then(operation);
+
+  deliveryStatusLedgerServiceQueue = queuedOperation.catch(() => undefined);
+
+  return queuedOperation;
 }
 
 export function readStoredDeliveryStatusLedger(): StoredDeliveryStatusLedger {
@@ -229,16 +310,60 @@ export function readStoredDeliveryStatusLedger(): StoredDeliveryStatusLedger {
   );
 }
 
+export async function readStoredDeliveryStatusLedgerAsync(): Promise<StoredDeliveryStatusLedger> {
+  const ledgerFile = getDeliveryStatusLedgerFile();
+  const rawLedger = await readDeliveryStatusLedgerFileTextAsync();
+
+  if (rawLedger === null) {
+    return {
+      pendingEvents: [],
+      postedEventKeys: [],
+    };
+  }
+
+  let parsedLedger: unknown;
+
+  try {
+    parsedLedger = JSON.parse(rawLedger);
+  } catch {
+    failWithBubblesError(
+      `Stored delivery status ledger at "${ledgerFile.uri}" is not valid JSON.`,
+    );
+  }
+
+  return normalizeDeliveryStatusLedger(
+    parsedLedger,
+    `"${ledgerFile.uri}"`,
+  );
+}
+
 export function storeDeliveryStatusLedger(
   ledger: StoredDeliveryStatusLedger,
 ): StoredDeliveryStatusLedger {
   const normalizedLedger: StoredDeliveryStatusLedger = {
-    pendingEvents: ledger.pendingEvents,
+    pendingEvents: boundPendingEvents(ledger.pendingEvents),
     postedEventKeys: ledger.postedEventKeys.slice(-MAX_POSTED_EVENT_KEYS),
   };
   const ledgerFile = ensureDeliveryStatusLedgerFile();
 
   ledgerFile.write(
+    JSON.stringify(serializeDeliveryStatusLedger(normalizedLedger), null, 2),
+  );
+
+  return normalizedLedger;
+}
+
+export async function storeDeliveryStatusLedgerAsync(
+  ledger: StoredDeliveryStatusLedger,
+): Promise<StoredDeliveryStatusLedger> {
+  const normalizedLedger: StoredDeliveryStatusLedger = {
+    pendingEvents: boundPendingEvents(ledger.pendingEvents),
+    postedEventKeys: ledger.postedEventKeys.slice(-MAX_POSTED_EVENT_KEYS),
+  };
+  const ledgerFile = getDeliveryStatusLedgerFile();
+
+  await writeAsStringAsync(
+    ledgerFile.uri,
     JSON.stringify(serializeDeliveryStatusLedger(normalizedLedger), null, 2),
   );
 
@@ -263,6 +388,28 @@ export function enqueueStoredDeliveryStatusEvent(
   });
 }
 
+export function enqueueStoredDeliveryStatusEventAsync(
+  event: StoredDeliveryStatusEvent,
+): Promise<StoredDeliveryStatusLedger> {
+  return runDeliveryStatusLedgerServiceOperation(async () => {
+    const ledger = await readStoredDeliveryStatusLedgerAsync();
+
+    if (
+      ledger.postedEventKeys.includes(event.key) ||
+      ledger.pendingEvents.some(
+        (pendingEvent) => pendingEvent.key === event.key,
+      )
+    ) {
+      return ledger;
+    }
+
+    return storeDeliveryStatusLedgerAsync({
+      ...ledger,
+      pendingEvents: [...ledger.pendingEvents, event],
+    });
+  });
+}
+
 export function markStoredDeliveryStatusEventPosted(
   event: StoredDeliveryStatusEvent,
 ): StoredDeliveryStatusLedger {
@@ -276,5 +423,23 @@ export function markStoredDeliveryStatusEventPosted(
       (pendingEvent) => pendingEvent.key !== event.key,
     ),
     postedEventKeys,
+  });
+}
+
+export function markStoredDeliveryStatusEventPostedAsync(
+  event: StoredDeliveryStatusEvent,
+): Promise<StoredDeliveryStatusLedger> {
+  return runDeliveryStatusLedgerServiceOperation(async () => {
+    const ledger = await readStoredDeliveryStatusLedgerAsync();
+    const postedEventKeys = ledger.postedEventKeys.includes(event.key)
+      ? ledger.postedEventKeys
+      : [...ledger.postedEventKeys, event.key];
+
+    return storeDeliveryStatusLedgerAsync({
+      pendingEvents: ledger.pendingEvents.filter(
+        (pendingEvent) => pendingEvent.key !== event.key,
+      ),
+      postedEventKeys,
+    });
   });
 }

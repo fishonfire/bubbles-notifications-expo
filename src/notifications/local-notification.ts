@@ -1,7 +1,6 @@
 import * as Notifications from 'expo-notifications';
 
-import { BUBBLES_DELIVERY_STATUSES } from '../api/delivery-status';
-import { postStoredBubblesDeliveryStatus } from './delivery-status';
+import { observeStoredBubblesLocalDisplayRequested } from './delivery-status';
 import { isNotificationPermissionGranted } from '../runtime/permissions';
 
 import type { BubblesNotificationPayload } from './payload';
@@ -79,14 +78,13 @@ function rememberScheduledNotificationKey(
   return true;
 }
 
-async function postLocalNotificationShownDeliveryStatus(
+async function postLocalDisplayRequestedDeliveryStatus(
   options: ScheduleBubblesLocalNotificationOptions,
 ) {
   try {
-    await postStoredBubblesDeliveryStatus({
+    await observeStoredBubblesLocalDisplayRequested({
       source: options.source,
       notificationId: options.payload.notificationId,
-      status: BUBBLES_DELIVERY_STATUSES.notificationShown,
     });
   } catch (error) {
     console.error(
@@ -153,7 +151,7 @@ export async function scheduleBubblesLocalNotification(
       notificationRequest,
     );
 
-  await postLocalNotificationShownDeliveryStatus(options);
+  await postLocalDisplayRequestedDeliveryStatus(options);
 
   return scheduledNotificationId;
 }

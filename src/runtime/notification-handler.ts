@@ -9,31 +9,63 @@ const DEFAULT_FOREGROUND_PRESENTATION = {
   shouldSetBadge: false,
 } as const satisfies Required<ForegroundPresentationOptions>;
 
-export function applyBubblesNotificationHandler(
-  options?: ForegroundPresentationOptions,
-): void {
-  Notifications.setNotificationHandler({
-    handleNotification: async (notification) => {
-      const presentation = {
-        shouldShowBanner:
-          options?.shouldShowBanner ??
-          DEFAULT_FOREGROUND_PRESENTATION.shouldShowBanner,
-        shouldShowList:
-          options?.shouldShowList ??
-          DEFAULT_FOREGROUND_PRESENTATION.shouldShowList,
-        shouldPlaySound:
-          options?.shouldPlaySound ??
-          DEFAULT_FOREGROUND_PRESENTATION.shouldPlaySound,
-        shouldSetBadge:
-          options?.shouldSetBadge ??
-          DEFAULT_FOREGROUND_PRESENTATION.shouldSetBadge,
-      };
+type NotificationHandlerOwner = object;
 
-      return presentation;
-    },
+let activeOwner: NotificationHandlerOwner | null = null;
+let currentPresentationOptions: ForegroundPresentationOptions | undefined;
+let isNotificationHandlerInstalled = false;
+
+function installBubblesNotificationHandler(): void {
+  if (isNotificationHandlerInstalled) {
+    return;
+  }
+
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner:
+        currentPresentationOptions?.shouldShowBanner ??
+        DEFAULT_FOREGROUND_PRESENTATION.shouldShowBanner,
+      shouldShowList:
+        currentPresentationOptions?.shouldShowList ??
+        DEFAULT_FOREGROUND_PRESENTATION.shouldShowList,
+      shouldPlaySound:
+        currentPresentationOptions?.shouldPlaySound ??
+        DEFAULT_FOREGROUND_PRESENTATION.shouldPlaySound,
+      shouldSetBadge:
+        currentPresentationOptions?.shouldSetBadge ??
+        DEFAULT_FOREGROUND_PRESENTATION.shouldSetBadge,
+    }),
   });
+  isNotificationHandlerInstalled = true;
 }
 
-export function clearBubblesNotificationHandler(): void {
-  Notifications.setNotificationHandler(null);
+export function acquireBubblesNotificationHandler(
+  owner: NotificationHandlerOwner,
+): () => void {
+  if (activeOwner !== null && activeOwner !== owner) {
+    throw new Error(
+      '[@fishonfire/bubbles-expo] Only one BubblesNotificationsProvider may be mounted at a time.',
+    );
+  }
+
+  installBubblesNotificationHandler();
+  activeOwner = owner;
+
+  return () => {
+    if (activeOwner === owner) {
+      activeOwner = null;
+      currentPresentationOptions = undefined;
+    }
+  };
+}
+
+export function updateBubblesNotificationHandler(
+  owner: NotificationHandlerOwner,
+  options?: ForegroundPresentationOptions,
+): void {
+  if (activeOwner !== owner) {
+    return;
+  }
+
+  currentPresentationOptions = options;
 }

@@ -6,6 +6,9 @@ import {
 import { Platform } from 'react-native';
 
 import {
+  observeStoredBubblesNotificationReceived,
+} from '../notifications/delivery-status';
+import {
   scheduleBubblesLocalNotification,
 } from '../notifications/local-notification';
 import {
@@ -17,18 +20,38 @@ function supportsFirebaseForegroundMessages(): boolean {
   return Platform.OS === 'android' || Platform.OS === 'ios';
 }
 
+const FOREGROUND_NOTIFICATION_SOURCE = 'Firebase foreground message';
+
+async function observeForegroundNotificationReceived(
+  notificationId: string | null,
+) {
+  try {
+    await observeStoredBubblesNotificationReceived({
+      source: FOREGROUND_NOTIFICATION_SOURCE,
+      notificationId,
+    });
+  } catch (error) {
+    console.error(
+      `[@fishonfire/bubbles-expo] Failed to post ${FOREGROUND_NOTIFICATION_SOURCE} received delivery status.`,
+      error,
+    );
+  }
+}
+
 async function handleFirebaseForegroundMessage(
   remoteMessage: RemoteMessage,
 ): Promise<void> {
   const payload =
     getBubblesNotificationPayloadFromRemoteMessage(remoteMessage);
 
+  void observeForegroundNotificationReceived(payload.notificationId);
+
   if (!hasFirebaseDisplayNotification(remoteMessage)) {
     return;
   }
 
   await scheduleBubblesLocalNotification({
-    source: 'Firebase foreground message',
+    source: FOREGROUND_NOTIFICATION_SOURCE,
     payload,
   });
 }

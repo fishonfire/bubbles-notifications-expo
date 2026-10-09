@@ -78,6 +78,21 @@ vi.doMock('../../src/notifications/delivery-status.ts', () => ({
   ) => {
     deliveryStatusCalls.push(options);
   },
+  observeStoredBubblesNotificationReceived: async (
+    options: Record<string, unknown>,
+  ) => {
+    deliveryStatusCalls.push({ ...options, status: 'received' });
+  },
+  observeStoredBubblesLocalDisplayRequested: async (
+    options: Record<string, unknown>,
+  ) => {
+    deliveryStatusCalls.push({ ...options, status: 'shown' });
+  },
+  observeStoredBubblesNotificationsDisabled: async (
+    options: Record<string, unknown>,
+  ) => {
+    deliveryStatusCalls.push({ ...options, status: 'disabled' });
+  },
 }));
 
 vi.doMock('../../src/runtime/permissions.ts', () => ({
@@ -243,6 +258,11 @@ test('firebase background message handler posts the notifications-disabled statu
 
   assert.equal(notificationCalls.getPermissions, 1);
   assert.deepEqual(deliveryStatusCalls, [
+    {
+      source: 'Firebase background message',
+      notificationId: 'notification-456',
+      status: 'received',
+    },
     {
       source: 'Firebase background message',
       notificationId: 'notification-456',

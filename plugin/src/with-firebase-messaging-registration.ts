@@ -14,10 +14,20 @@ const REGISTRAR_CLASS = 'BubblesFirebaseMessagingRegistrar';
 
 const withFirebaseMessagingRegistration: ConfigPlugin<
   NormalizedBubblesNotificationsExpoPluginConfig
-> = config => {
+> = (config, options) => {
   return withDangerousMod(config, [
     'android',
     async config => {
+      if (!options.enableFirebaseInstallationPushRegistration) {
+        await removeFirebaseMessagingRegistrarSources(
+          path.join(
+            config.modRequest.projectRoot,
+            'android', 'app', 'src', 'main', 'java',
+          ),
+        );
+        return config;
+      }
+
       const packageName = getAndroidPackageName(config);
       const sourceDirectory = path.join(
         config.modRequest.projectRoot,
@@ -39,6 +49,29 @@ const withFirebaseMessagingRegistration: ConfigPlugin<
     },
   ]);
 };
+
+async function removeFirebaseMessagingRegistrarSources(
+  directory: string,
+): Promise<void> {
+  let entries;
+  try {
+    entries = await fs.readdir(directory, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      await removeFirebaseMessagingRegistrarSources(entryPath);
+    } else if (entry.isFile() && entry.name === `${REGISTRAR_CLASS}.java`) {
+      await fs.unlink(entryPath);
+    }
+  }
+}
 
 function getAndroidPackageName(config: {
   android?: {

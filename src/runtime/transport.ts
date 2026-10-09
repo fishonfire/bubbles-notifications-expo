@@ -1,6 +1,3 @@
-import {
-  observeBubblesForegroundMessages,
-} from './foreground-message-observer';
 import { getFirebaseInstallationId } from './installations';
 import {
   getDeviceRegistrationState,
@@ -22,7 +19,71 @@ export type {
 };
 
 export function observeBubblesForegroundRemoteMessages(): () => void {
-  return observeBubblesForegroundMessages();
+  let isCancelled = false;
+  let unsubscribe: (() => void) | null = null;
+
+  void import('./foreground-message-observer')
+    .then(({ observeBubblesForegroundMessages }) => {
+      if (isCancelled) {
+        return;
+      }
+
+      unsubscribe = observeBubblesForegroundMessages();
+
+      if (isCancelled) {
+        unsubscribe();
+      }
+    })
+    .catch((error) => {
+      console.error(
+        '[@fishonfire/bubbles-expo] Failed to start Firebase foreground message observer.',
+        error,
+      );
+    });
+
+  return () => {
+    isCancelled = true;
+
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
+  };
+}
+
+export function observeBubblesDeviceTokenRefresh(
+  listener: (token: string) => void,
+): () => void {
+  let isCancelled = false;
+  let unsubscribe: (() => void) | null = null;
+
+  void import('@react-native-firebase/messaging')
+    .then(({ getMessaging, onTokenRefresh }) => {
+      if (isCancelled) {
+        return;
+      }
+
+      unsubscribe = onTokenRefresh(getMessaging(), listener);
+
+      if (isCancelled) {
+        unsubscribe();
+      }
+    })
+    .catch((error) => {
+      console.error(
+        '[@fishonfire/bubbles-expo] Failed to observe Firebase token refreshes.',
+        error,
+      );
+    });
+
+  return () => {
+    isCancelled = true;
+
+    if (unsubscribe) {
+      unsubscribe();
+      unsubscribe = null;
+    }
+  };
 }
 
 export async function getBubblesDeviceRegistrationState(

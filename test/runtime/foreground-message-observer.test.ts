@@ -32,6 +32,7 @@ const notificationCalls = {
   schedule: [] as Array<Record<string, unknown>>,
 };
 const deliveryStatusCalls: Array<Record<string, unknown>> = [];
+let receivedStatusPromise: Promise<void> | null = null;
 
 async function flushMicrotasks() {
   for (let index = 0; index < 5; index += 1) {
@@ -80,10 +81,16 @@ vi.doMock('expo-notifications', () => ({
 }));
 
 vi.doMock('../../src/notifications/delivery-status.ts', () => ({
-  postStoredBubblesDeliveryStatus: async (
+  observeStoredBubblesNotificationReceived: async (
     options: Record<string, unknown>,
   ) => {
-    deliveryStatusCalls.push(options);
+    deliveryStatusCalls.push({ ...options, status: 'received' });
+    await receivedStatusPromise;
+  },
+  observeStoredBubblesLocalDisplayRequested: async (
+    options: Record<string, unknown>,
+  ) => {
+    deliveryStatusCalls.push({ ...options, status: 'shown' });
   },
 }));
 
@@ -110,6 +117,7 @@ beforeEach(() => {
   notificationCalls.getPermissions = 0;
   notificationCalls.schedule.length = 0;
   deliveryStatusCalls.length = 0;
+  receivedStatusPromise = null;
 });
 
 test('foreground message observer subscribes on supported platforms and schedules a local notification', async () => {
@@ -156,6 +164,11 @@ test('foreground message observer subscribes on supported platforms and schedule
     {
       source: 'Firebase foreground message',
       notificationId: 'notification-123',
+      status: 'received',
+    },
+    {
+      source: 'Firebase foreground message',
+      notificationId: 'notification-123',
       status: 'shown',
     },
   ]);
@@ -164,7 +177,7 @@ test('foreground message observer subscribes on supported platforms and schedule
   assert.equal(messagingCalls.unsubscribe, 1);
 });
 
-test('foreground message observer keeps data-only messages silent', async () => {
+test('foreground message observer reports data-only messages as received without displaying them', async () => {
   const cleanup = observeBubblesForegroundMessages();
 
   messagingCalls.onMessage[0]?.listener({
@@ -179,7 +192,45 @@ test('foreground message observer keeps data-only messages silent', async () => 
 
   assert.equal(notificationCalls.getPermissions, 0);
   assert.deepEqual(notificationCalls.schedule, []);
-  assert.deepEqual(deliveryStatusCalls, []);
+  assert.deepEqual(deliveryStatusCalls, [
+    {
+      source: 'Firebase foreground message',
+      notificationId: 'notification-data-only',
+      status: 'received',
+    },
+  ]);
+
+  cleanup();
+});
+
+test('foreground message observer reports display messages as received when local display is unavailable', async () => {
+  notificationState.permissions = {
+    granted: false,
+    status: 'denied',
+  };
+  const cleanup = observeBubblesForegroundMessages();
+
+  messagingCalls.onMessage[0]?.listener({
+    data: {
+      notification_id: 'notification-disabled',
+    },
+    notification: {
+      title: 'Foreground title',
+      body: 'Foreground body',
+    },
+  });
+
+  await flushMicrotasks();
+
+  assert.equal(notificationCalls.getPermissions, 1);
+  assert.deepEqual(notificationCalls.schedule, []);
+  assert.deepEqual(deliveryStatusCalls, [
+    {
+      source: 'Firebase foreground message',
+      notificationId: 'notification-disabled',
+      status: 'received',
+    },
+  ]);
 
   cleanup();
 });
@@ -194,4 +245,21 @@ test('foreground message observer skips unsupported platforms', () => {
 
   cleanup();
   assert.equal(messagingCalls.unsubscribe, 0);
+});
+
+test('foreground display proceeds while received status reporting is pending', async () => {
+  let resolveStatus!: () => void;
+  receivedStatusPromise = new Promise<void>(resolve => { resolveStatus = resolve; });
+  const cleanup = observeBubblesForegroundMessages();
+
+  messagingCalls.onMessage[0]?.listener({
+    data: { notification_id: 'notification-slow-api' },
+    notification: { title: 'Display immediately', body: 'Pending reporting' },
+  });
+  await flushMicrotasks();
+
+  assert.equal(notificationCalls.schedule.length, 1);
+  resolveStatus();
+  await flushMicrotasks();
+  cleanup();
 });
