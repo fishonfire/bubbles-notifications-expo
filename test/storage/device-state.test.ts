@@ -135,7 +135,7 @@ test('stores and patches structured device state', () => {
     fileContents.get(storedStateUri),
     JSON.stringify(
       {
-        version: 1,
+        version: 2,
         deviceId: 'device-1',
         apiBaseUrl: 'https://api.example.com',
         appKey: 'app-key-1',
@@ -278,7 +278,7 @@ test('quarantines malformed stored state and recovers synchronously', () => {
   });
   assert.equal(
     fileContents.get(storedStateUri),
-    JSON.stringify({ version: 1 }, null, 2),
+    JSON.stringify({ version: 2 }, null, 2),
   );
   assert.ok(
     [...fileContents.keys()].some((uri) => uri.includes('.corrupt-')),
@@ -295,7 +295,7 @@ test('quarantines malformed stored state and recovers asynchronously', async () 
   });
   assert.equal(
     fileContents.get(storedStateUri),
-    JSON.stringify({ version: 1 }, null, 2),
+    JSON.stringify({ version: 2 }, null, 2),
   );
   assert.ok(
     [...fileContents.keys()].some((uri) => uri.includes('.corrupt-')),

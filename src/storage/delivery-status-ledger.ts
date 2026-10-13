@@ -19,6 +19,8 @@ export interface StoredDeliveryStatusEvent {
   status?: BubblesDeliveryStatus;
   error?: string;
   createdAt: string;
+  deviceId?: string;
+  registrationScope?: string;
 }
 
 export interface StoredDeliveryStatusLedger {
@@ -126,6 +128,8 @@ function normalizeStoredDeliveryStatusEvent(
     ...(status ? { status } : {}),
     ...(error ? { error } : {}),
     createdAt: requireString(value.createdAt, `${sourceDescription}.createdAt`),
+    ...(getOptionalNonEmptyString(value.deviceId) ? { deviceId: getOptionalNonEmptyString(value.deviceId) } : {}),
+    ...(getOptionalNonEmptyString(value.registrationScope) ? { registrationScope: getOptionalNonEmptyString(value.registrationScope) } : {}),
   };
 }
 

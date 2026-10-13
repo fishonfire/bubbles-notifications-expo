@@ -57,6 +57,14 @@ const tokenState: {
   },
 };
 
+vi.doMock('../../src/runtime/migration.ts', () => ({
+  resolveRegistrationIdentity: async (options: { deviceId: string | null; apiBaseUrl: string; appKey: string }) => {
+    storedApiBaseUrls.push(options.apiBaseUrl);
+    storedAppKeys.push(options.appKey);
+    return { deviceId: options.deviceId };
+  },
+}));
+
 vi.doMock('../../src/api/device-client.ts', () => ({
   syncBubblesDevice: async (options: Record<string, unknown>) => {
     syncCalls.push(options);
@@ -107,7 +115,7 @@ vi.doMock('../../src/storage/device-state.ts', () => ({
       appKey: storedAppKeys[storedAppKeys.length - 1] ?? null,
     };
   },
-  storeDeviceIdAsync: async (value: string | null) => {
+  acknowledgeRegistrationScope: async (_scope: string, value: string | null) => {
     storedDeviceIds.push(value);
     return {
       deviceId: value,
@@ -204,6 +212,8 @@ test('syncDeviceRegistrationState stores base URL, sends FCM token with FID, and
       aliasing: ['alpha'],
       appVersion: '1.0.0',
       deviceId: null,
+      installationId: undefined,
+      oneSignalSubscriptionId: undefined,
       platform: 'android',
       pushToken: 'fcm-token-123',
       fid: 'fid-123',

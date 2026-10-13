@@ -403,3 +403,16 @@ test('migration keeps one unposted click across legacy action keys', () => {
   );
   assert.deepEqual(readStoredDeliveryStatusLedger().pendingEvents, [event]);
 });
+
+test('scoped migration never flushes legacy or another device pending statuses', async () => {
+  const unscoped = { deviceId: null, apiBaseUrl: 'https://api.example.com', appKey: 'key' };
+  await postStoredBubblesDeliveryStatus({ source: 'test', notificationId: 'legacy', storedDeviceState: unscoped });
+  const old = { ...unscoped, deviceId: 'old-device', registrationScope: 'scope', identityAcknowledged: false };
+  await postStoredBubblesDeliveryStatus({ source: 'test', notificationId: 'old-notification', storedDeviceState: old });
+  const canonical = { ...old, deviceId: 'canonical', identityAcknowledged: true };
+  await flushStoredBubblesDeliveryStatuses(canonical);
+  assert.equal(postDeliveryStatusCalls.length, 0);
+  await postStoredBubblesDeliveryStatus({ source: 'test', notificationId: 'current-notification', storedDeviceState: canonical });
+  assert.equal(postDeliveryStatusCalls.length, 1);
+  assert.equal(postDeliveryStatusCalls[0]?.deviceId, 'canonical');
+});

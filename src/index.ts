@@ -36,3 +36,7 @@ export type {
   RegisterDeviceOptions,
 } from './runtime/context';
 export type { AndroidChannelImportance } from './config/runtime-config';
+
+export type { OneSignalMigrationBridge, OneSignalMigration } from './runtime/migration';
+export { BubblesMigrationPendingError } from './runtime/migration';
+export { BubblesDeviceIdentityError, BubblesAppAuthenticationError } from './api/device-client';

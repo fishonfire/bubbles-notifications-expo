@@ -335,3 +335,47 @@ test('syncBubblesDevice maps invalid app key responses to an app authentication 
     BubblesAppAuthenticationError,
   );
 });
+
+const migrationOptions = {
+  appId: 42, appKey: 'key', userId: 'user', platform: 'android' as const,
+  pushToken: 'sdk-token', notificationsEnabled: true,
+  installationId: '4885590c-7ce2-444a-8bfb-5c2adba24296', oneSignalSubscriptionId: 'imported-player',
+};
+
+test('identity registration sends both identities and validates authoritative response', async () => {
+  let sent: Record<string, unknown> | undefined;
+  const client = { createDevice: async (payload: Record<string, unknown>) => {
+    sent = payload; return { id: 123, installation_id: migrationOptions.installationId, onesignal_subscription_id: 'imported-player' };
+  } } as never;
+  assert.equal((await syncBubblesDevice({ ...migrationOptions, client, deviceId: null })).deviceId, '123');
+  assert.equal(sent?.installation_id, migrationOptions.installationId);
+  assert.equal(sent?.onesignal_subscription_id, 'imported-player');
+});
+
+test('missing identity echoes and changed update identity fail without accepting a binding', async () => {
+  for (const response of [{ id: 'device' }, { id: 'another', installation_id: migrationOptions.installationId, onesignal_subscription_id: 'imported-player' }]) {
+    const client = { updateDevice: async () => response } as never;
+    await assert.rejects(syncBubblesDevice({ ...migrationOptions, client, deviceId: 'device' }), /invalid_identity_response/);
+  }
+});
+
+test('identity conflicts remain actionable without identity-free retries', async () => {
+  for (const code of ['identity_conflict', 'identity_ambiguous']) {
+    let creates = 0;
+    const client = { createDevice: async () => { creates++; throw { status: 409, body: { error: code } }; } } as never;
+    await assert.rejects(syncBubblesDevice({ ...migrationOptions, client, deviceId: null }), new RegExp(code));
+    assert.equal(creates, 1);
+  }
+});
+
+test('404 recovery uses POST with the same stable identities', async () => {
+  let sent: Record<string, unknown> | undefined;
+  const client = {
+    updateDevice: async () => { throw { status: 404 }; },
+    createDevice: async (payload: Record<string, unknown>) => { sent = payload; return { id: 'canonical', ...payload }; },
+  } as never;
+  const result = await syncBubblesDevice({ ...migrationOptions, client, deviceId: 'deleted' });
+  assert.equal(result.deviceId, 'canonical');
+  assert.equal(sent?.installation_id, migrationOptions.installationId);
+  assert.equal(sent?.onesignal_subscription_id, 'imported-player');
+});

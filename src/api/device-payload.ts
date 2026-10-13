@@ -15,6 +15,8 @@ export interface BuildBubblesDevicePayloadOptions {
   platform: BubblesDevicePlatform;
   pushToken: string | null;
   fid?: string | null;
+  installationId?: string;
+  oneSignalSubscriptionId?: string | null;
   appVersion?: string | null;
   notificationsEnabled: boolean;
   localeAndTimeZone?: LocaleAndTimeZone;
@@ -31,6 +33,8 @@ export interface BubblesDevicePayload {
   platform: BubblesDevicePlatform;
   push_token: string | null;
   fid?: string | null;
+  installation_id?: string;
+  onesignal_subscription_id?: string;
   app_version?: string;
   locale: string;
   timezone?: string;
@@ -152,6 +156,14 @@ function buildBaseDevicePayload(
       options.notificationsEnabled,
     ),
   };
+
+  if (options.installationId !== undefined) {
+    const id = getRequiredNonEmptyString(options.installationId, 'installationId');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) failWithBubblesError('"installationId" must be a UUID.');
+    payload.installation_id = id;
+  }
+  const subscriptionId = normalizeOptionalString(options.oneSignalSubscriptionId, 'oneSignalSubscriptionId');
+  if (subscriptionId) payload.onesignal_subscription_id = subscriptionId;
 
   if ('fid' in options) {
     payload.fid = normalizeOptionalString(options.fid, 'fid');
