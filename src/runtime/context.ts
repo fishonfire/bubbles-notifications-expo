@@ -1,11 +1,11 @@
-import { createContext, type ReactNode } from 'react';
-import type { Notification } from 'expo-notifications';
+import { createContext, type ReactNode } from 'react'
+import type { Notification } from 'expo-notifications'
 
-import type { PermissionRequestOptions } from './permissions';
+import type { PermissionRequestOptions } from './permissions'
 import type {
   BubblesDeviceAttributes,
-  BubblesDeviceAttributeValue,
-} from '../api/device-client';
+  BubblesDeviceAttributeValue
+} from '../api/device-client'
 
 export interface RegisterDeviceOptions {
   userId: string;
@@ -85,4 +85,4 @@ export interface BubblesNotificationsContextValue {
 }
 
 export const BubblesNotificationsContext =
-  createContext<BubblesNotificationsContextValue | null>(null);
+  createContext<BubblesNotificationsContextValue | null>(null)

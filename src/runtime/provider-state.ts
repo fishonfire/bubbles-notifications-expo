@@ -1,5 +1,5 @@
-import type { BubblesNotificationsRuntimeSnapshot } from './sync-device';
-import type { NativeTokenType } from './tokens';
+import type { BubblesNotificationsRuntimeSnapshot } from './sync-device'
+import type { NativeTokenType } from './tokens'
 
 export interface BubblesNotificationsRuntimeState {
   deviceId: string | null;
@@ -20,9 +20,9 @@ export type RuntimeStateUpdate = Pick<
   | 'notificationsEnabled'
 >;
 
-function createInitialRuntimeState(
+function createInitialRuntimeState (
   deviceId: string | null,
-  error: Error | null,
+  error: Error | null
 ): BubblesNotificationsRuntimeState {
   return {
     deviceId,
@@ -31,41 +31,42 @@ function createInitialRuntimeState(
     permissionStatus: 'unknown',
     notificationsEnabled: false,
     isSyncing: false,
-    error,
-  };
+    error
+  }
 }
 
-export function normalizeProviderError(error: unknown): Error {
+export function normalizeProviderError (error: unknown): Error {
   if (error instanceof Error) {
-    return error;
+    return error
   }
 
-  return new Error(String(error));
+  return new Error(String(error))
 }
 
-export function normalizeUserId(
-  value: string | null | undefined,
+export function normalizeUserId (
+  value: string | null | undefined
 ): string | null {
   if (typeof value !== 'string') {
-    return null;
+    return null
   }
 
-  const trimmedValue = value.trim();
-  return trimmedValue.length > 0 ? trimmedValue : null;
+  const trimmedValue = value.trim()
+
+  return trimmedValue.length > 0 ? trimmedValue : null
 }
 
-export function getRuntimeStateUpdate(
-  snapshot: BubblesNotificationsRuntimeSnapshot,
+export function getRuntimeStateUpdate (
+  snapshot: BubblesNotificationsRuntimeSnapshot
 ): RuntimeStateUpdate {
   return {
     deviceId: snapshot.deviceId,
     pushToken: snapshot.pushToken,
     tokenType: snapshot.tokenType,
     permissionStatus: snapshot.permissionStatus,
-    notificationsEnabled: snapshot.notificationsEnabled,
-  };
+    notificationsEnabled: snapshot.notificationsEnabled
+  }
 }
 
-export function getInitialRuntimeState(): BubblesNotificationsRuntimeState {
-  return createInitialRuntimeState(null, null);
+export function getInitialRuntimeState (): BubblesNotificationsRuntimeState {
+  return createInitialRuntimeState(null, null)
 }

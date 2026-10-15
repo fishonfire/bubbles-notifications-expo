@@ -1,18 +1,18 @@
 import type {
   DeviceClient,
   DeviceClientOptions,
-  RequestOptions,
-} from '@fishonfire/bubbles-js';
+  RequestOptions
+} from '@fishonfire/bubbles-js'
 
 import {
   BubblesAppAuthenticationError,
-  createBubblesDeviceClient,
-} from './device-client';
+  createBubblesDeviceClient
+} from './device-client'
 import {
   getRequiredNonEmptyString,
-  normalizeIdentifier,
-} from '../internal/validation';
-import { failWithBubblesError } from '../internal/errors';
+  normalizeIdentifier
+} from '../internal/validation'
+import { failWithBubblesError } from '../internal/errors'
 
 type DeviceClientFactoryOptions = Omit<DeviceClientOptions, 'baseUrl'>;
 
@@ -28,8 +28,8 @@ export const BUBBLES_DELIVERY_STATUSES = {
   notificationReceived: 'received',
   notificationShown: 'shown',
   notificationClicked: 'clicked',
-  notificationsDisabled: 'disabled',
-} as const;
+  notificationsDisabled: 'disabled'
+} as const
 
 export type BubblesDeliveryStatus =
   (typeof BUBBLES_DELIVERY_STATUSES)[keyof typeof BUBBLES_DELIVERY_STATUSES];
@@ -55,77 +55,77 @@ export interface PostBubblesDeliveryStatusOptions
   requestOptions?: RequestOptions;
 }
 
-function normalizeError(value: unknown): string | undefined {
+function normalizeError (value: unknown): string | undefined {
   if (value == null) {
-    return undefined;
+    return undefined
   }
 
   if (typeof value !== 'string') {
-    failWithBubblesError('"error" must be a string when present.');
+    failWithBubblesError('"error" must be a string when present.')
   }
 
-  const trimmedValue = value.trim();
+  const trimmedValue = value.trim()
 
   if (!trimmedValue) {
-    failWithBubblesError('"error" must not be empty when present.');
+    failWithBubblesError('"error" must not be empty when present.')
   }
 
-  return trimmedValue;
+  return trimmedValue
 }
 
-function normalizeStatus(value: unknown): BubblesDeliveryStatus | undefined {
+function normalizeStatus (value: unknown): BubblesDeliveryStatus | undefined {
   if (value === undefined) {
-    return undefined;
+    return undefined
   }
 
-  const supportedValues = Object.values(BUBBLES_DELIVERY_STATUSES);
+  const supportedValues = Object.values(BUBBLES_DELIVERY_STATUSES)
 
   if (
     typeof value !== 'string' ||
     !supportedValues.includes(value as BubblesDeliveryStatus)
   ) {
     failWithBubblesError(
-      `"status" must be one of: ${supportedValues.join(', ')}.`,
-    );
+      `"status" must be one of: ${supportedValues.join(', ')}.`
+    )
   }
 
-  return value as BubblesDeliveryStatus;
+  return value as BubblesDeliveryStatus
 }
 
-function resolveDeviceClient(
-  options: PostBubblesDeliveryStatusOptions,
+function resolveDeviceClient (
+  options: PostBubblesDeliveryStatusOptions
 ): DeviceClient {
   if (options.client) {
-    return options.client;
+    return options.client
   }
 
   return createBubblesDeviceClient({
     ...options.clientOptions,
     appKey: getRequiredNonEmptyString(options.appKey, 'appKey'),
-    baseUrl: getRequiredNonEmptyString(options.apiBaseUrl, 'apiBaseUrl'),
-  });
+    baseUrl: getRequiredNonEmptyString(options.apiBaseUrl, 'apiBaseUrl')
+  })
 }
 
-function withAppKeyHeader(
+function withAppKeyHeader (
   appKey: string,
-  requestOptions: RequestOptions | undefined,
+  requestOptions: RequestOptions | undefined
 ): RequestOptions {
   return {
     ...requestOptions,
     headers: {
       ...requestOptions?.headers,
-      'X-App-Key': getRequiredNonEmptyString(appKey, 'appKey'),
-    },
-  };
+      'X-App-Key': getRequiredNonEmptyString(appKey, 'appKey')
+    }
+  }
 }
 
-function isInvalidAppKeyResponse(error: unknown): boolean {
+function isInvalidAppKeyResponse (error: unknown): boolean {
   if (!error || typeof error !== 'object') {
-    return false;
+    return false
   }
 
-  const status = Reflect.get(error, 'status');
-  const body = Reflect.get(error, 'body');
+  const status = Reflect.get(error, 'status')
+  const body = Reflect.get(error, 'body')
 
   return (
     status === 401 &&
@@ -133,44 +133,44 @@ function isInvalidAppKeyResponse(error: unknown): boolean {
     typeof body === 'object' &&
     !Array.isArray(body) &&
     Reflect.get(body, 'error') === 'invalid app key for app'
-  );
+  )
 }
 
-export function buildBubblesDeliveryStatusPayload(
-  options: BuildBubblesDeliveryStatusPayloadOptions,
+export function buildBubblesDeliveryStatusPayload (
+  options: BuildBubblesDeliveryStatusPayloadOptions
 ): BubblesDeliveryStatusPayload {
-  const status = normalizeStatus(options.status);
-  const error = normalizeError(options.error);
+  const status = normalizeStatus(options.status)
+  const error = normalizeError(options.error)
 
   if (!status && !error) {
     failWithBubblesError(
-      'A delivery status payload must include "status" and/or "error".',
-    );
+      'A delivery status payload must include "status" and/or "error".'
+    )
   }
 
   return {
     ...(status ? { status } : {}),
-    ...(error ? { error } : {}),
-  };
+    ...(error ? { error } : {})
+  }
 }
 
-export async function postBubblesDeliveryStatus(
-  options: PostBubblesDeliveryStatusOptions,
+export async function postBubblesDeliveryStatus (
+  options: PostBubblesDeliveryStatusOptions
 ): Promise<void> {
-  const client = resolveDeviceClient(options);
+  const client = resolveDeviceClient(options)
 
   try {
     await client.postDeliveryStatus(
       normalizeIdentifier(options.deviceId, 'deviceId'),
       normalizeIdentifier(options.notificationId, 'notificationId'),
       buildBubblesDeliveryStatusPayload(options),
-      withAppKeyHeader(options.appKey, options.requestOptions),
-    );
+      withAppKeyHeader(options.appKey, options.requestOptions)
+    )
   } catch (error) {
     if (isInvalidAppKeyResponse(error)) {
-      throw new BubblesAppAuthenticationError(error);
+      throw new BubblesAppAuthenticationError(error)
     }
 
-    throw error;
+    throw error
   }
 }

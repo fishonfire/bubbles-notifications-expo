@@ -1,15 +1,15 @@
-import { File, Paths } from 'expo-file-system';
-import { failWithBubblesError } from '../internal/errors';
-import { isPlainObject } from '../internal/validation';
+import { File, Paths } from 'expo-file-system'
+import { failWithBubblesError } from '../internal/errors'
+import { isPlainObject } from '../internal/validation'
 
-const STORED_DEVICE_STATE_FILE_NAME = 'bubbles-notifications-expo-state.json';
-const LEGACY_DEVICE_ID_FILE_NAME = 'device-id.txt';
-const STORED_DEVICE_STATE_VERSION = 1 as const;
+const STORED_DEVICE_STATE_FILE_NAME = 'bubbles-notifications-expo-state.json'
+const LEGACY_DEVICE_ID_FILE_NAME = 'device-id.txt'
+const STORED_DEVICE_STATE_VERSION = 1 as const
 const EMPTY_STORED_DEVICE_STATE: StoredDeviceState = {
   deviceId: null,
   apiBaseUrl: null,
-  appKey: null,
-};
+  appKey: null
+}
 
 export interface StoredDeviceState {
   deviceId: string | null;
@@ -30,409 +30,433 @@ type StoredDeviceStateUpdater = (
   state: StoredDeviceState,
 ) => StoredDeviceState | Promise<StoredDeviceState>;
 
-let mutationQueue: Promise<void> = Promise.resolve();
-let temporaryFileSequence = 0;
+let mutationQueue: Promise<void> = Promise.resolve()
+let temporaryFileSequence = 0
 
-function getOptionalNonEmptyString(
+function getOptionalNonEmptyString (
   value: unknown,
-  fieldName: keyof StoredDeviceState,
+  fieldName: keyof StoredDeviceState
 ): string | null {
   if (value == null) {
-    return null;
+    return null
   }
 
   if (typeof value !== 'string') {
-    failWithBubblesError(`Stored "${fieldName}" must be a string when present.`);
+    failWithBubblesError(`Stored "${fieldName}" must be a string when present.`)
   }
 
-  const trimmedValue = value.trim();
-  return trimmedValue.length > 0 ? trimmedValue : null;
+  const trimmedValue = value.trim()
+
+  return trimmedValue.length > 0 ? trimmedValue : null
 }
 
-function normalizeStoredDeviceState(
+function normalizeStoredDeviceState (
   value: unknown,
-  sourceDescription = 'storage',
+  sourceDescription = 'storage'
 ): StoredDeviceState {
   if (!isPlainObject(value)) {
     failWithBubblesError(
-      `Stored device state in ${sourceDescription} must be a JSON object.`,
-    );
+      `Stored device state in ${sourceDescription} must be a JSON object.`
+    )
   }
 
   return {
     deviceId: getOptionalNonEmptyString(value.deviceId, 'deviceId'),
     apiBaseUrl: getOptionalNonEmptyString(value.apiBaseUrl, 'apiBaseUrl'),
-    appKey: getOptionalNonEmptyString(value.appKey, 'appKey'),
-  };
+    appKey: getOptionalNonEmptyString(value.appKey, 'appKey')
+  }
 }
 
-function normalizeStoredDeviceStateUpdate(
-  value: unknown,
+function normalizeStoredDeviceStateUpdate (
+  value: unknown
 ): StoredDeviceStateUpdate {
   if (!isPlainObject(value)) {
-    failWithBubblesError('Stored device state update must be an object.');
+    failWithBubblesError('Stored device state update must be an object.')
   }
 
-  const nextState: StoredDeviceStateUpdate = {};
+  const nextState: StoredDeviceStateUpdate = {}
 
   if ('deviceId' in value) {
-    nextState.deviceId = getOptionalNonEmptyString(value.deviceId, 'deviceId');
+    nextState.deviceId = getOptionalNonEmptyString(value.deviceId, 'deviceId')
   }
 
   if ('apiBaseUrl' in value) {
     nextState.apiBaseUrl = getOptionalNonEmptyString(
       value.apiBaseUrl,
-      'apiBaseUrl',
-    );
+      'apiBaseUrl'
+    )
   }
 
   if ('appKey' in value) {
-    nextState.appKey = getOptionalNonEmptyString(value.appKey, 'appKey');
+    nextState.appKey = getOptionalNonEmptyString(value.appKey, 'appKey')
   }
 
-  return nextState;
+  return nextState
 }
 
-function serializeStoredDeviceState(
-  state: StoredDeviceState,
+function serializeStoredDeviceState (
+  state: StoredDeviceState
 ): PersistedStoredDeviceState {
   const serializedState: PersistedStoredDeviceState = {
-    version: STORED_DEVICE_STATE_VERSION,
-  };
+    version: STORED_DEVICE_STATE_VERSION
+  }
 
   if (state.deviceId) {
-    serializedState.deviceId = state.deviceId;
+    serializedState.deviceId = state.deviceId
   }
 
   if (state.apiBaseUrl) {
-    serializedState.apiBaseUrl = state.apiBaseUrl;
+    serializedState.apiBaseUrl = state.apiBaseUrl
   }
 
   if (state.appKey) {
-    serializedState.appKey = state.appKey;
+    serializedState.appKey = state.appKey
   }
 
-  return serializedState;
+  return serializedState
 }
 
-function getStoredDeviceStateFile() {
-  return new File(Paths.document, STORED_DEVICE_STATE_FILE_NAME);
+function getStoredDeviceStateFile () {
+  return new File(Paths.document, STORED_DEVICE_STATE_FILE_NAME)
 }
 
-function getLegacyDeviceIdFile() {
-  return new File(Paths.document, LEGACY_DEVICE_ID_FILE_NAME);
+function getLegacyDeviceIdFile () {
+  return new File(Paths.document, LEGACY_DEVICE_ID_FILE_NAME)
 }
 
-function getTemporaryStoredDeviceStateFile() {
-  temporaryFileSequence += 1;
+function getTemporaryStoredDeviceStateFile () {
+  temporaryFileSequence += 1
+
   return new File(
     Paths.document,
-    `${STORED_DEVICE_STATE_FILE_NAME}.tmp-${Date.now()}-${temporaryFileSequence}`,
-  );
+    `${STORED_DEVICE_STATE_FILE_NAME}.tmp-${Date.now()}-${temporaryFileSequence}`
+  )
 }
 
-function getCorruptStoredDeviceStateFile() {
+function getCorruptStoredDeviceStateFile () {
   return new File(
     Paths.document,
-    `${STORED_DEVICE_STATE_FILE_NAME}.corrupt-${Date.now()}`,
-  );
+    `${STORED_DEVICE_STATE_FILE_NAME}.corrupt-${Date.now()}`
+  )
 }
 
-function parseStoredDeviceState(rawState: string, uri: string) {
-  const parsedState: unknown = JSON.parse(rawState);
+function parseStoredDeviceState (rawState: string, uri: string) {
+  const parsedState: unknown = JSON.parse(rawState)
 
   if (!isPlainObject(parsedState)) {
     failWithBubblesError(
-      `Stored device state in "${uri}" must be a JSON object.`,
-    );
+      `Stored device state in "${uri}" must be a JSON object.`
+    )
   }
 
   if (parsedState.version !== STORED_DEVICE_STATE_VERSION) {
     failWithBubblesError(
       `Stored device state in "${uri}" uses unsupported schema version "${String(
-        parsedState.version,
-      )}".`,
-    );
+        parsedState.version
+      )}".`
+    )
   }
 
-  return normalizeStoredDeviceState(parsedState, `"${uri}"`);
+  return normalizeStoredDeviceState(parsedState, `"${uri}"`)
 }
 
-function deleteFileIfPresent(file: File) {
+function deleteFileIfPresent (file: File) {
   if (file.exists) {
-    file.delete();
+    file.delete()
   }
 }
 
-function deleteLegacyDeviceIdFile() {
+function deleteLegacyDeviceIdFile () {
   try {
-    deleteFileIfPresent(getLegacyDeviceIdFile());
+    deleteFileIfPresent(getLegacyDeviceIdFile())
   } catch {
-    return;
+    return
   }
 }
 
-function readLegacyStoredDeviceIdSync(): string | null {
-  const legacyDeviceIdFile = getLegacyDeviceIdFile();
+function readLegacyStoredDeviceIdSync (): string | null {
+  const legacyDeviceIdFile = getLegacyDeviceIdFile()
 
   if (!legacyDeviceIdFile.exists) {
-    return null;
+    return null
   }
 
-  const storedDeviceId = legacyDeviceIdFile.textSync().trim();
-  return storedDeviceId.length > 0 ? storedDeviceId : null;
+  const storedDeviceId = legacyDeviceIdFile.textSync().trim()
+
+  return storedDeviceId.length > 0 ? storedDeviceId : null
 }
 
-async function readLegacyStoredDeviceId(): Promise<string | null> {
-  const legacyDeviceIdFile = getLegacyDeviceIdFile();
+async function readLegacyStoredDeviceId (): Promise<string | null> {
+  const legacyDeviceIdFile = getLegacyDeviceIdFile()
 
   if (!legacyDeviceIdFile.exists) {
-    return null;
+    return null
   }
 
-  const storedDeviceId = (await legacyDeviceIdFile.text()).trim();
-  return storedDeviceId.length > 0 ? storedDeviceId : null;
+  const storedDeviceId = (await legacyDeviceIdFile.text()).trim()
+
+  return storedDeviceId.length > 0 ? storedDeviceId : null
 }
 
-function writeStateSync(state: StoredDeviceState) {
-  const destination = getStoredDeviceStateFile();
-  const temporaryFile = getTemporaryStoredDeviceStateFile();
-  let replacementSucceeded = false;
+function writeStateSync (state: StoredDeviceState) {
+  const destination = getStoredDeviceStateFile()
+  const temporaryFile = getTemporaryStoredDeviceStateFile()
+  let replacementSucceeded = false
 
   try {
     temporaryFile.write(
-      JSON.stringify(serializeStoredDeviceState(state), null, 2),
-    );
-    temporaryFile.moveSync(destination, { overwrite: true });
-    replacementSucceeded = true;
+      JSON.stringify(serializeStoredDeviceState(state), null, 2)
+    )
+    temporaryFile.moveSync(destination, { overwrite: true })
+    replacementSucceeded = true
   } finally {
     if (!replacementSucceeded) {
-      deleteFileIfPresent(temporaryFile);
+      deleteFileIfPresent(temporaryFile)
     }
   }
 }
 
-async function writeState(state: StoredDeviceState) {
-  const destination = getStoredDeviceStateFile();
-  const temporaryFile = getTemporaryStoredDeviceStateFile();
-  let replacementSucceeded = false;
+async function writeState (state: StoredDeviceState) {
+  const destination = getStoredDeviceStateFile()
+  const temporaryFile = getTemporaryStoredDeviceStateFile()
+  let replacementSucceeded = false
 
   try {
     temporaryFile.write(
-      JSON.stringify(serializeStoredDeviceState(state), null, 2),
-    );
-    await temporaryFile.move(destination, { overwrite: true });
-    replacementSucceeded = true;
+      JSON.stringify(serializeStoredDeviceState(state), null, 2)
+    )
+    await temporaryFile.move(destination, { overwrite: true })
+    replacementSucceeded = true
   } finally {
     if (!replacementSucceeded) {
-      deleteFileIfPresent(temporaryFile);
+      deleteFileIfPresent(temporaryFile)
     }
   }
 }
 
-function recoverCorruptStateSync(storedDeviceStateFile: File) {
-  const corruptStateFile = getCorruptStoredDeviceStateFile();
+function recoverCorruptStateSync (storedDeviceStateFile: File) {
+  const corruptStateFile = getCorruptStoredDeviceStateFile()
 
   try {
-    storedDeviceStateFile.moveSync(corruptStateFile, { overwrite: true });
+    storedDeviceStateFile.moveSync(corruptStateFile, { overwrite: true })
   } catch {
-    deleteFileIfPresent(storedDeviceStateFile);
+    deleteFileIfPresent(storedDeviceStateFile)
   }
 
-  writeStateSync(EMPTY_STORED_DEVICE_STATE);
-  deleteLegacyDeviceIdFile();
-  return { ...EMPTY_STORED_DEVICE_STATE };
+  writeStateSync(EMPTY_STORED_DEVICE_STATE)
+  deleteLegacyDeviceIdFile()
+
+  return { ...EMPTY_STORED_DEVICE_STATE }
 }
 
-async function recoverCorruptState(storedDeviceStateFile: File) {
-  const corruptStateFile = getCorruptStoredDeviceStateFile();
+async function recoverCorruptState (storedDeviceStateFile: File) {
+  const corruptStateFile = getCorruptStoredDeviceStateFile()
 
   try {
-    await storedDeviceStateFile.move(corruptStateFile, { overwrite: true });
+    await storedDeviceStateFile.move(corruptStateFile, { overwrite: true })
   } catch {
-    deleteFileIfPresent(storedDeviceStateFile);
+    deleteFileIfPresent(storedDeviceStateFile)
   }
 
-  await writeState(EMPTY_STORED_DEVICE_STATE);
-  deleteLegacyDeviceIdFile();
-  return { ...EMPTY_STORED_DEVICE_STATE };
+  await writeState(EMPTY_STORED_DEVICE_STATE)
+  deleteLegacyDeviceIdFile()
+
+  return { ...EMPTY_STORED_DEVICE_STATE }
 }
 
-function readStateSync(): StoredDeviceState {
-  const storedDeviceStateFile = getStoredDeviceStateFile();
+function readStateSync (): StoredDeviceState {
+  const storedDeviceStateFile = getStoredDeviceStateFile()
 
   if (storedDeviceStateFile.exists) {
-    const rawState = storedDeviceStateFile.textSync().trim();
+    const rawState = storedDeviceStateFile.textSync().trim()
 
     try {
-      const state = parseStoredDeviceState(rawState, storedDeviceStateFile.uri);
-      deleteLegacyDeviceIdFile();
-      return state;
+      const state = parseStoredDeviceState(rawState, storedDeviceStateFile.uri)
+
+      deleteLegacyDeviceIdFile()
+
+      return state
     } catch {
-      return recoverCorruptStateSync(storedDeviceStateFile);
+      return recoverCorruptStateSync(storedDeviceStateFile)
     }
   }
 
   const state = {
     ...EMPTY_STORED_DEVICE_STATE,
-    deviceId: readLegacyStoredDeviceIdSync(),
-  };
-  writeStateSync(state);
-  deleteLegacyDeviceIdFile();
-  return state;
+    deviceId: readLegacyStoredDeviceIdSync()
+  }
+
+  writeStateSync(state)
+  deleteLegacyDeviceIdFile()
+
+  return state
 }
 
-async function readState(): Promise<StoredDeviceState> {
-  const storedDeviceStateFile = getStoredDeviceStateFile();
+async function readState (): Promise<StoredDeviceState> {
+  const storedDeviceStateFile = getStoredDeviceStateFile()
 
   if (storedDeviceStateFile.exists) {
-    const rawState = (await storedDeviceStateFile.text()).trim();
+    const rawState = (await storedDeviceStateFile.text()).trim()
 
     try {
-      const state = parseStoredDeviceState(rawState, storedDeviceStateFile.uri);
-      deleteLegacyDeviceIdFile();
-      return state;
+      const state = parseStoredDeviceState(rawState, storedDeviceStateFile.uri)
+
+      deleteLegacyDeviceIdFile()
+
+      return state
     } catch {
-      return recoverCorruptState(storedDeviceStateFile);
+      return recoverCorruptState(storedDeviceStateFile)
     }
   }
 
   const state = {
     ...EMPTY_STORED_DEVICE_STATE,
-    deviceId: await readLegacyStoredDeviceId(),
-  };
-  await writeState(state);
-  deleteLegacyDeviceIdFile();
-  return state;
+    deviceId: await readLegacyStoredDeviceId()
+  }
+
+  await writeState(state)
+  deleteLegacyDeviceIdFile()
+
+  return state
 }
 
-function runSerialized<T>(operation: () => Promise<T>): Promise<T> {
-  const result = mutationQueue.then(operation, operation);
+function runSerialized<T> (operation: () => Promise<T>): Promise<T> {
+  const result = mutationQueue.then(operation, operation)
+
   mutationQueue = result.then(
     () => undefined,
-    () => undefined,
-  );
-  return result;
+    () => undefined
+  )
+
+  return result
 }
 
-async function updateState(
-  updater: StoredDeviceStateUpdater,
+async function updateState (
+  updater: StoredDeviceStateUpdater
 ): Promise<StoredDeviceState> {
   return runSerialized(async () => {
-    const nextState = normalizeStoredDeviceState(await updater(await readState()));
-    await writeState(nextState);
-    return nextState;
-  });
+    const nextState = normalizeStoredDeviceState(await updater(await readState()))
+
+    await writeState(nextState)
+
+    return nextState
+  })
 }
 
 /** @deprecated Use readStoredDeviceStateAsync. */
-export function readStoredDeviceState(): StoredDeviceState {
-  return readStateSync();
+export function readStoredDeviceState (): StoredDeviceState {
+  return readStateSync()
 }
 
-export async function readStoredDeviceStateAsync(): Promise<StoredDeviceState> {
-  return runSerialized(readState);
-}
-
-/** @deprecated Use patchStoredDeviceStateAsync. */
-export function storeDeviceState(state: StoredDeviceState): StoredDeviceState {
-  const normalizedState = normalizeStoredDeviceState(state);
-  writeStateSync(normalizedState);
-  deleteLegacyDeviceIdFile();
-  return normalizedState;
+export async function readStoredDeviceStateAsync (): Promise<StoredDeviceState> {
+  return runSerialized(readState)
 }
 
 /** @deprecated Use patchStoredDeviceStateAsync. */
-export async function storeDeviceStateAsync(
-  state: StoredDeviceState,
+export function storeDeviceState (state: StoredDeviceState): StoredDeviceState {
+  const normalizedState = normalizeStoredDeviceState(state)
+
+  writeStateSync(normalizedState)
+  deleteLegacyDeviceIdFile()
+
+  return normalizedState
+}
+
+/** @deprecated Use patchStoredDeviceStateAsync. */
+export async function storeDeviceStateAsync (
+  state: StoredDeviceState
 ): Promise<StoredDeviceState> {
-  const normalizedState = normalizeStoredDeviceState(state);
-  return updateState(() => normalizedState);
+  const normalizedState = normalizeStoredDeviceState(state)
+
+  return updateState(() => normalizedState)
 }
 
 /** @deprecated Use patchStoredDeviceStateAsync. */
-export function patchStoredDeviceState(
-  update: StoredDeviceStateUpdate,
+export function patchStoredDeviceState (
+  update: StoredDeviceStateUpdate
 ): StoredDeviceState {
   const nextState = {
     ...readStateSync(),
-    ...normalizeStoredDeviceStateUpdate(update),
-  };
-  writeStateSync(nextState);
-  return nextState;
+    ...normalizeStoredDeviceStateUpdate(update)
+  }
+
+  writeStateSync(nextState)
+
+  return nextState
 }
 
-export async function patchStoredDeviceStateAsync(
-  update: StoredDeviceStateUpdate,
+export async function patchStoredDeviceStateAsync (
+  update: StoredDeviceStateUpdate
 ): Promise<StoredDeviceState> {
-  const normalizedUpdate = normalizeStoredDeviceStateUpdate(update);
-  return updateState((state) => ({ ...state, ...normalizedUpdate }));
+  const normalizedUpdate = normalizeStoredDeviceStateUpdate(update)
+
+  return updateState((state) => ({ ...state, ...normalizedUpdate }))
 }
 
 /** @deprecated Use readStoredDeviceStateAsync. */
-export function readStoredDeviceId(): string | null {
-  return readStoredDeviceState().deviceId;
+export function readStoredDeviceId (): string | null {
+  return readStoredDeviceState().deviceId
 }
 
 /** @deprecated Use readStoredDeviceStateAsync. */
-export async function readStoredDeviceIdAsync(): Promise<string | null> {
-  return (await readStoredDeviceStateAsync()).deviceId;
+export async function readStoredDeviceIdAsync (): Promise<string | null> {
+  return (await readStoredDeviceStateAsync()).deviceId
 }
 
 /** @deprecated Use readStoredDeviceStateAsync. */
-export function readStoredApiBaseUrl(): string | null {
-  return readStoredDeviceState().apiBaseUrl;
+export function readStoredApiBaseUrl (): string | null {
+  return readStoredDeviceState().apiBaseUrl
 }
 
 /** @deprecated Use readStoredDeviceStateAsync. */
-export async function readStoredApiBaseUrlAsync(): Promise<string | null> {
-  return (await readStoredDeviceStateAsync()).apiBaseUrl;
+export async function readStoredApiBaseUrlAsync (): Promise<string | null> {
+  return (await readStoredDeviceStateAsync()).apiBaseUrl
 }
 
 /** @deprecated Use readStoredDeviceStateAsync. */
-export function readStoredAppKey(): string | null {
-  return readStoredDeviceState().appKey;
+export function readStoredAppKey (): string | null {
+  return readStoredDeviceState().appKey
 }
 
 /** @deprecated Use readStoredDeviceStateAsync. */
-export async function readStoredAppKeyAsync(): Promise<string | null> {
-  return (await readStoredDeviceStateAsync()).appKey;
+export async function readStoredAppKeyAsync (): Promise<string | null> {
+  return (await readStoredDeviceStateAsync()).appKey
 }
 
 /** @deprecated Use patchStoredDeviceStateAsync. */
-export function storeDeviceId(deviceId: string | null): StoredDeviceState {
-  return patchStoredDeviceState({ deviceId });
+export function storeDeviceId (deviceId: string | null): StoredDeviceState {
+  return patchStoredDeviceState({ deviceId })
 }
 
 /** @deprecated Use patchStoredDeviceStateAsync. */
-export async function storeDeviceIdAsync(
-  deviceId: string | null,
+export async function storeDeviceIdAsync (
+  deviceId: string | null
 ): Promise<StoredDeviceState> {
-  return patchStoredDeviceStateAsync({ deviceId });
+  return patchStoredDeviceStateAsync({ deviceId })
 }
 
 /** @deprecated Use patchStoredDeviceStateAsync. */
-export function storeApiBaseUrl(
-  apiBaseUrl: string | null,
+export function storeApiBaseUrl (
+  apiBaseUrl: string | null
 ): StoredDeviceState {
-  return patchStoredDeviceState({ apiBaseUrl });
+  return patchStoredDeviceState({ apiBaseUrl })
 }
 
 /** @deprecated Use patchStoredDeviceStateAsync. */
-export async function storeApiBaseUrlAsync(
-  apiBaseUrl: string | null,
+export async function storeApiBaseUrlAsync (
+  apiBaseUrl: string | null
 ): Promise<StoredDeviceState> {
-  return patchStoredDeviceStateAsync({ apiBaseUrl });
+  return patchStoredDeviceStateAsync({ apiBaseUrl })
 }
 
 /** @deprecated Use patchStoredDeviceStateAsync. */
-export function storeAppKey(appKey: string | null): StoredDeviceState {
-  return patchStoredDeviceState({ appKey });
+export function storeAppKey (appKey: string | null): StoredDeviceState {
+  return patchStoredDeviceState({ appKey })
 }
 
 /** @deprecated Use patchStoredDeviceStateAsync. */
-export async function storeAppKeyAsync(
-  appKey: string | null,
+export async function storeAppKeyAsync (
+  appKey: string | null
 ): Promise<StoredDeviceState> {
-  return patchStoredDeviceStateAsync({ appKey });
+  return patchStoredDeviceStateAsync({ appKey })
 }

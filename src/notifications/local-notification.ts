@@ -1,16 +1,16 @@
-import * as Notifications from 'expo-notifications';
+import * as Notifications from 'expo-notifications'
 
-import { observeStoredBubblesLocalDisplayRequested } from './delivery-status';
-import { isNotificationPermissionGranted } from '../runtime/permissions';
+import { observeStoredBubblesLocalDisplayRequested } from './delivery-status'
+import { isNotificationPermissionGranted } from '../runtime/permissions'
 
-import type { BubblesNotificationPayload } from './payload';
+import type { BubblesNotificationPayload } from './payload'
 
-const DEFAULT_LOCAL_NOTIFICATION_TITLE = 'Notification received';
+const DEFAULT_LOCAL_NOTIFICATION_TITLE = 'Notification received'
 const DEFAULT_LOCAL_NOTIFICATION_BODY =
-  'Open the app to view this update.';
-const DUPLICATE_NOTIFICATION_WINDOW_MS = 5_000;
+  'Open the app to view this update.'
+const DUPLICATE_NOTIFICATION_WINDOW_MS = 5_000
 
-const recentlyScheduledNotificationKeys = new Map<string, number>();
+const recentlyScheduledNotificationKeys = new Map<string, number>()
 
 export interface BuildBubblesLocalNotificationRequestOptions {
   title?: string | null;
@@ -24,79 +24,81 @@ export interface ScheduleBubblesLocalNotificationOptions
   skipPermissionCheck?: boolean;
 }
 
-function getOptionalNonEmptyString(value: unknown): string | null {
+function getOptionalNonEmptyString (value: unknown): string | null {
   if (typeof value !== 'string') {
-    return null;
+    return null
   }
 
-  const trimmedValue = value.trim();
-  return trimmedValue.length > 0 ? trimmedValue : null;
+  const trimmedValue = value.trim()
+
+  return trimmedValue.length > 0 ? trimmedValue : null
 }
 
-function buildDuplicateNotificationKey(
-  payload: BubblesNotificationPayload,
+function buildDuplicateNotificationKey (
+  payload: BubblesNotificationPayload
 ): string | null {
   if (payload.notificationId) {
-    return `notification:${payload.notificationId}`;
+    return `notification:${payload.notificationId}`
   }
 
-  const dataKeys = Object.keys(payload.data);
+  const dataKeys = Object.keys(payload.data)
 
   if (dataKeys.length === 0) {
-    return null;
+    return null
   }
 
   try {
-    return `data:${JSON.stringify(payload.data)}`;
+    return `data:${JSON.stringify(payload.data)}`
   } catch {
-    return null;
+    return null
   }
 }
 
-function rememberScheduledNotificationKey(
-  duplicateKey: string,
+function rememberScheduledNotificationKey (
+  duplicateKey: string
 ): boolean {
-  const now = Date.now();
+  const now = Date.now()
 
   for (const [key, timestamp] of recentlyScheduledNotificationKeys) {
     if (now - timestamp > DUPLICATE_NOTIFICATION_WINDOW_MS) {
-      recentlyScheduledNotificationKeys.delete(key);
+      recentlyScheduledNotificationKeys.delete(key)
     }
   }
 
   const previousTimestamp =
-    recentlyScheduledNotificationKeys.get(duplicateKey);
+    recentlyScheduledNotificationKeys.get(duplicateKey)
 
   if (
     previousTimestamp !== undefined &&
     now - previousTimestamp <= DUPLICATE_NOTIFICATION_WINDOW_MS
   ) {
-    return false;
+    return false
   }
 
-  recentlyScheduledNotificationKeys.set(duplicateKey, now);
-  return true;
+  recentlyScheduledNotificationKeys.set(duplicateKey, now)
+
+  return true
 }
 
-async function postLocalDisplayRequestedDeliveryStatus(
-  options: ScheduleBubblesLocalNotificationOptions,
+async function postLocalDisplayRequestedDeliveryStatus (
+  options: ScheduleBubblesLocalNotificationOptions
 ) {
   try {
     await observeStoredBubblesLocalDisplayRequested({
       source: options.source,
-      notificationId: options.payload.notificationId,
-    });
+      notificationId: options.payload.notificationId
+    })
   } catch (error) {
     console.error(
       `[@fishonfire/bubbles-expo] Failed to post ${options.source} shown delivery status.`,
-      error,
-    );
+      error
+    )
   }
 }
 
-export function buildBubblesLocalNotificationRequest(
+export function buildBubblesLocalNotificationRequest (
   payload: BubblesNotificationPayload,
-  options?: BuildBubblesLocalNotificationRequestOptions,
+  options?: BuildBubblesLocalNotificationRequestOptions
 ): Parameters<typeof Notifications.scheduleNotificationAsync>[0] {
   return {
     content: {
@@ -108,50 +110,50 @@ export function buildBubblesLocalNotificationRequest(
         payload.body ??
         getOptionalNonEmptyString(options?.body) ??
         DEFAULT_LOCAL_NOTIFICATION_BODY,
-      data: payload.data,
+      data: payload.data
     },
     // Force app to trigger it 1 second from now instead of null.
     // This prevents issues during background handling.
     trigger: {
       type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: 1,
-    },
-  };
+      seconds: 1
+    }
+  }
 }
 
-export async function scheduleBubblesLocalNotification(
-  options: ScheduleBubblesLocalNotificationOptions,
+export async function scheduleBubblesLocalNotification (
+  options: ScheduleBubblesLocalNotificationOptions
 ): Promise<string | null> {
   if (!options.skipPermissionCheck) {
-    const permissions = await Notifications.getPermissionsAsync();
+    const permissions = await Notifications.getPermissionsAsync()
     const notificationsEnabled =
-      isNotificationPermissionGranted(permissions);
+      isNotificationPermissionGranted(permissions)
 
     if (!notificationsEnabled) {
-      return null;
+      return null
     }
   }
 
-  const duplicateKey = buildDuplicateNotificationKey(options.payload);
+  const duplicateKey = buildDuplicateNotificationKey(options.payload)
 
   if (
     duplicateKey !== null &&
     !rememberScheduledNotificationKey(duplicateKey)
   ) {
-    return null;
+    return null
   }
 
   const notificationRequest = buildBubblesLocalNotificationRequest(
     options.payload,
-    options,
-  );
+    options
+  )
 
   const scheduledNotificationId =
     await Notifications.scheduleNotificationAsync(
-      notificationRequest,
-    );
+      notificationRequest
+    )
 
-  await postLocalDisplayRequestedDeliveryStatus(options);
+  await postLocalDisplayRequestedDeliveryStatus(options)
 
-  return scheduledNotificationId;
+  return scheduledNotificationId
 }

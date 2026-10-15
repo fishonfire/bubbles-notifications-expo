@@ -1,68 +1,70 @@
-import assert from 'node:assert/strict';
-import { beforeEach, test, vi } from 'vitest';
+import assert from 'node:assert/strict'
+import { beforeEach, test, vi } from 'vitest'
 
-const withStaticPluginCalls: Array<{
+const NOTIFICATION_ICON_PATH = './icon.png'
+
+const withStaticPluginCalls: {
   config: Record<string, unknown>;
   options: Record<string, unknown>;
-}> = [];
+}[] = []
 
 vi.doMock('expo/config-plugins', () => ({
-  withStaticPlugin(
+  withStaticPlugin (
     config: Record<string, unknown>,
-    options: Record<string, unknown>,
+    options: Record<string, unknown>
   ) {
-    withStaticPluginCalls.push({ config, options });
+    withStaticPluginCalls.push({ config, options })
 
     return {
       ...config,
-      appliedPlugin: options,
-    };
-  },
-}));
+      appliedPlugin: options
+    }
+  }
+}))
 
 const { default: withExpoNotifications } = await import(
   '../../plugin/src/with-expo-notifications.ts'
-);
+)
 
 beforeEach(() => {
-  withStaticPluginCalls.length = 0;
-});
+  withStaticPluginCalls.length = 0
+})
 
 test('withExpoNotifications forwards the expected config to Expo built-in notifications plugin', () => {
   const config = withExpoNotifications(
     {
       name: 'demo-app',
-      slug: 'demo-app',
+      slug: 'demo-app'
     },
     {
       defaultChannelId: 'messages',
       defaultChannelName: 'Messages',
       androidChannelImportance: 'max',
-      androidNotificationIcon: './icon.png',
+      androidNotificationIcon: NOTIFICATION_ICON_PATH,
       androidNotificationColor: '#FF00FF',
       enableBackgroundRemoteNotifications: false,
-      enableFirebaseInstallationPushRegistration: false,
-    },
-  );
+      enableFirebaseInstallationPushRegistration: false
+    }
+  )
 
-  assert.equal(withStaticPluginCalls.length, 1);
+  assert.equal(withStaticPluginCalls.length, 1)
   assert.deepEqual(withStaticPluginCalls[0], {
     config: {
       name: 'demo-app',
-      slug: 'demo-app',
+      slug: 'demo-app'
     },
     options: {
       plugin: [
         'expo-notifications',
         {
           defaultChannel: 'messages',
-          icon: './icon.png',
+          icon: NOTIFICATION_ICON_PATH,
           color: '#FF00FF',
-          enableBackgroundRemoteNotifications: false,
-        },
-      ],
-    },
-  });
+          enableBackgroundRemoteNotifications: false
+        }
+      ]
+    }
+  })
 
   assert.deepEqual(config, {
     name: 'demo-app',
@@ -72,11 +74,11 @@ test('withExpoNotifications forwards the expected config to Expo built-in notifi
         'expo-notifications',
         {
           defaultChannel: 'messages',
-          icon: './icon.png',
+          icon: NOTIFICATION_ICON_PATH,
           color: '#FF00FF',
-          enableBackgroundRemoteNotifications: false,
-        },
-      ],
-    },
-  });
-});
+          enableBackgroundRemoteNotifications: false
+        }
+      ]
+    }
+  })
+})

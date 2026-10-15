@@ -1,4 +1,4 @@
-import { getFirebaseInstallationId } from './installations';
+import { getFirebaseInstallationId } from './installations'
 import {
   getDeviceRegistrationState,
   getDeviceToken,
@@ -7,105 +7,105 @@ import {
   type DeviceTokenResult,
   type GetDeviceTokenOptions,
   type NativeTokenType,
-  type SupportedPlatform,
-} from './tokens';
+  type SupportedPlatform
+} from './tokens'
 
 export type {
   DeviceRegistrationState,
   DeviceTokenResult,
   GetDeviceTokenOptions,
   NativeTokenType,
-  SupportedPlatform,
-};
+  SupportedPlatform
+}
 
-export function observeBubblesForegroundRemoteMessages(): () => void {
-  let isCancelled = false;
-  let unsubscribe: (() => void) | null = null;
+export function observeBubblesForegroundRemoteMessages (): () => void {
+  let isCancelled = false
+  let unsubscribe: (() => void) | null = null
 
   void import('./foreground-message-observer')
     .then(({ observeBubblesForegroundMessages }) => {
       if (isCancelled) {
-        return;
+        return
       }
 
-      unsubscribe = observeBubblesForegroundMessages();
+      unsubscribe = observeBubblesForegroundMessages()
 
       if (isCancelled) {
-        unsubscribe();
+        unsubscribe()
       }
     })
     .catch((error) => {
       console.error(
         '[@fishonfire/bubbles-expo] Failed to start Firebase foreground message observer.',
-        error,
-      );
-    });
+        error
+      )
+    })
 
   return () => {
-    isCancelled = true;
+    isCancelled = true
 
     if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
+      unsubscribe()
+      unsubscribe = null
     }
-  };
+  }
 }
 
-export function observeBubblesDeviceTokenRefresh(
-  listener: (token: string) => void,
+export function observeBubblesDeviceTokenRefresh (
+  listener: (token: string) => void
 ): () => void {
-  let isCancelled = false;
-  let unsubscribe: (() => void) | null = null;
+  let isCancelled = false
+  let unsubscribe: (() => void) | null = null
 
   void import('@react-native-firebase/messaging')
     .then(({ getMessaging, onTokenRefresh }) => {
       if (isCancelled) {
-        return;
+        return
       }
 
-      unsubscribe = onTokenRefresh(getMessaging(), listener);
+      unsubscribe = onTokenRefresh(getMessaging(), listener)
 
       if (isCancelled) {
-        unsubscribe();
+        unsubscribe()
       }
     })
     .catch((error) => {
       console.error(
         '[@fishonfire/bubbles-expo] Failed to observe Firebase token refreshes.',
-        error,
-      );
-    });
+        error
+      )
+    })
 
   return () => {
-    isCancelled = true;
+    isCancelled = true
 
     if (unsubscribe) {
-      unsubscribe();
-      unsubscribe = null;
+      unsubscribe()
+      unsubscribe = null
     }
-  };
+  }
 }
 
-export async function getBubblesDeviceRegistrationState(
-  options?: GetDeviceTokenOptions,
+export async function getBubblesDeviceRegistrationState (
+  options?: GetDeviceTokenOptions
 ): Promise<DeviceRegistrationState> {
-  return getDeviceRegistrationState(options);
+  return getDeviceRegistrationState(options)
 }
 
-export async function getBubblesDeviceToken(
-  options?: GetDeviceTokenOptions,
+export async function getBubblesDeviceToken (
+  options?: GetDeviceTokenOptions
 ): Promise<DeviceTokenResult> {
-  return getDeviceToken(options);
+  return getDeviceToken(options)
 }
 
-export async function getBubblesFCMToken(
-  options?: GetDeviceTokenOptions,
+export async function getBubblesFCMToken (
+  options?: GetDeviceTokenOptions
 ): Promise<string> {
-  return getFCMToken(options);
+  return getFCMToken(options)
 }
 
-export async function getBubblesInstallationId(
-  platform: SupportedPlatform,
+export async function getBubblesInstallationId (
+  platform: SupportedPlatform
 ): Promise<string> {
-  return getFirebaseInstallationId(platform);
+  return getFirebaseInstallationId(platform)
 }

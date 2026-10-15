@@ -1,103 +1,108 @@
-import assert from 'node:assert/strict';
-import { beforeEach, test, vi } from 'vitest';
+import assert from 'node:assert/strict'
+import { beforeEach, test, vi } from 'vitest'
 
-const createClientCalls: Array<Record<string, unknown>> = [];
-const postDeliveryStatusCalls: Array<{
+const API_BASE_URL = 'https://api.example.com'
+
+const PADDED_API_BASE_URL = ` ${API_BASE_URL} `
+
+const createClientCalls: Record<string, unknown>[] = []
+const postDeliveryStatusCalls: {
   deviceId: string;
   notificationId: string;
   payload: Record<string, unknown>;
   requestOptions: unknown;
-}> = [];
+}[] = []
 
 const mockClient = {
   postDeliveryStatus: async (
     deviceId: string,
     notificationId: string,
     payload: Record<string, unknown>,
-    requestOptions: unknown,
+    requestOptions: unknown
   ) => {
     postDeliveryStatusCalls.push({
       deviceId,
       notificationId,
       payload,
-      requestOptions,
-    });
-  },
-};
+      requestOptions
+    })
+  }
+}
 
 vi.doMock('../../src/api/device-client.ts', () => ({
   createBubblesDeviceClient: (options: Record<string, unknown>) => {
-    createClientCalls.push(options);
-    return mockClient;
-  },
-}));
+    createClientCalls.push(options)
+
+    return mockClient
+  }
+}))
 
 const {
   buildBubblesDeliveryStatusPayload,
-  postBubblesDeliveryStatus,
-} = await import('../../src/api/delivery-status.ts');
+  postBubblesDeliveryStatus
+} = await import('../../src/api/delivery-status.ts')
 
 beforeEach(() => {
-  createClientCalls.length = 0;
-  postDeliveryStatusCalls.length = 0;
-});
+  createClientCalls.length = 0
+  postDeliveryStatusCalls.length = 0
+})
 
 test('buildBubblesDeliveryStatusPayload trims the optional error text', () => {
   assert.deepEqual(
     buildBubblesDeliveryStatusPayload({
       status: 'shown',
-      error: ' failed to display ',
+      error: ' failed to display '
     }),
     {
       status: 'shown',
-      error: 'failed to display',
-    },
-  );
-});
+      error: 'failed to display'
+    }
+  )
+})
 
 test('postBubblesDeliveryStatus normalizes baseUrl and identifiers before delegating', async () => {
   await postBubblesDeliveryStatus({
-    apiBaseUrl: ' https://api.example.com ',
+    apiBaseUrl: PADDED_API_BASE_URL,
     appKey: ' app-key-1 ',
     deviceId: ' device-1 ',
     notificationId: 123,
-    status: 'clicked',
-  });
+    status: 'clicked'
+  })
 
   assert.deepEqual(createClientCalls, [
     {
-      baseUrl: 'https://api.example.com',
-      appKey: 'app-key-1',
-    },
-  ]);
+      baseUrl: API_BASE_URL,
+      appKey: 'app-key-1'
+    }
+  ])
   assert.deepEqual(postDeliveryStatusCalls, [
     {
       deviceId: 'device-1',
       notificationId: '123',
       payload: {
-        status: 'clicked',
+        status: 'clicked'
       },
       requestOptions: {
         headers: {
-          'X-App-Key': 'app-key-1',
-        },
-      },
-    },
-  ]);
-});
+          'X-App-Key': 'app-key-1'
+        }
+      }
+    }
+  ])
+})
 
 test('postBubblesDeliveryStatus rejects non-finite numeric identifiers with the current error text', async () => {
   await assert.rejects(
     () =>
       postBubblesDeliveryStatus({
-        apiBaseUrl: 'https://api.example.com',
+        apiBaseUrl: API_BASE_URL,
         appKey: 'app-key-1',
         deviceId: Number.NaN,
         notificationId: 'notification-1',
-        status: 'shown',
+        status: 'shown'
       }),
-    /"deviceId" must be a finite number when it is numeric\./,
-  );
+    /"deviceId" must be a finite number when it is numeric\./
+  )
 
-  assert.deepEqual(postDeliveryStatusCalls, []);
-});
+  assert.deepEqual(postDeliveryStatusCalls, [])
+})

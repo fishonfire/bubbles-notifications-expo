@@ -1,10 +1,10 @@
-import type { RegisterDeviceOptions } from './context';
-import type { PermissionRequestOptions } from './presentation';
+import type { RegisterDeviceOptions } from './context'
+import type { PermissionRequestOptions } from './presentation'
 import {
   syncDeviceRegistrationState,
-  type SyncBubblesNotificationsDeviceResult,
-} from './sync-device';
-import { getBubblesDeviceRegistrationState } from './transport';
+  type SyncBubblesNotificationsDeviceResult
+} from './sync-device'
+import { getBubblesDeviceRegistrationState } from './transport'
 
 type DeviceRegistrationOptions = Pick<
   RegisterDeviceOptions,
@@ -49,47 +49,47 @@ const DEFAULT_PERMISSION_REQUEST_OPTIONS: PermissionRequestOptions = {
   ios: {
     allowAlert: true,
     allowBadge: true,
-    allowSound: true,
-  },
-};
+    allowSound: true
+  }
+}
 
-function buildRegistrationOptions(
-  options?: DeviceRegistrationOptions,
+function buildRegistrationOptions (
+  options?: DeviceRegistrationOptions
 ): DeviceRegistrationOptions {
   if (options?.requestPermissions !== true) {
     return {
       requestPermissions: false,
-      permissionRequestOptions: options?.permissionRequestOptions,
-    };
+      permissionRequestOptions: options?.permissionRequestOptions
+    }
   }
 
   return {
     requestPermissions: options?.requestPermissions,
     permissionRequestOptions:
-      options?.permissionRequestOptions ?? DEFAULT_PERMISSION_REQUEST_OPTIONS,
-  };
+      options?.permissionRequestOptions ?? DEFAULT_PERMISSION_REQUEST_OPTIONS
+  }
 }
 
-export async function registerBubblesDevice(
-  options: RegisterBubblesDeviceOptions,
+export async function registerBubblesDevice (
+  options: RegisterBubblesDeviceOptions
 ): Promise<RegisterBubblesDeviceResult> {
   const {
     loadDeviceId,
     registrationOptions,
     previousRegistrationState,
     ...syncOptions
-  } = options;
+  } = options
   const registrationStatePromise = getBubblesDeviceRegistrationState(
-    buildRegistrationOptions(registrationOptions),
-  );
+    buildRegistrationOptions(registrationOptions)
+  )
   const deviceIdPromise =
     syncOptions.deviceId === null && loadDeviceId
       ? loadDeviceId()
-      : Promise.resolve(syncOptions.deviceId);
+      : Promise.resolve(syncOptions.deviceId)
   const [registrationState, deviceId] = await Promise.all([
     registrationStatePromise,
-    deviceIdPromise,
-  ]);
+    deviceIdPromise
+  ])
 
   if (deviceId !== null && previousRegistrationState &&
       areRegistrationStatesEqual(previousRegistrationState, registrationState)) {
@@ -101,42 +101,42 @@ export async function registerBubblesDevice(
       permissionStatus: registrationState.permissionStatus,
       notificationsEnabled: registrationState.notificationsEnabled,
       registrationState,
-      attributeSync: { status: 'skipped', error: null },
-    };
+      attributeSync: { status: 'skipped', error: null }
+    }
   }
 
   const result = await syncDeviceRegistrationState({
     ...syncOptions,
     deviceId,
     registrationState,
-    deferPostRegistrationWork: true,
-  });
+    deferPostRegistrationWork: true
+  })
 
   return {
     ...result,
-    registrationState,
-  };
+    registrationState
+  }
 }
 
-export async function syncExistingBubblesDevice(
+export async function syncExistingBubblesDevice (
   options: Omit<
     RegisterBubblesDeviceOptions,
     'deviceId' | 'loadDeviceId' | 'registrationOptions'
   > & {
     deviceId: string;
-  },
+  }
 ): Promise<RegisterBubblesDeviceResult> {
   return registerBubblesDevice({
     ...options,
     registrationOptions: {
-      requestPermissions: false,
-    },
-  });
+      requestPermissions: false
+    }
+  })
 }
 
-function areRegistrationStatesEqual(
+function areRegistrationStatesEqual (
   left: RegisterBubblesDeviceResult['registrationState'],
-  right: RegisterBubblesDeviceResult['registrationState'],
+  right: RegisterBubblesDeviceResult['registrationState']
 ): boolean {
   return (
     left.platform === right.platform &&
@@ -145,36 +145,36 @@ function areRegistrationStatesEqual(
     left.fid === right.fid &&
     left.permissionStatus === right.permissionStatus &&
     left.notificationsEnabled === right.notificationsEnabled
-  );
+  )
 }
 
-export async function maintainBubblesDevice(
-  options: MaintainBubblesDeviceOptions,
+export async function maintainBubblesDevice (
+  options: MaintainBubblesDeviceOptions
 ): Promise<MaintainBubblesDeviceResult> {
   const registrationState = await getBubblesDeviceRegistrationState({
-    requestPermissions: false,
-  });
+    requestPermissions: false
+  })
 
   if (
     areRegistrationStatesEqual(
       options.previousRegistrationState,
-      registrationState,
+      registrationState
     )
   ) {
     return {
       registrationState,
-      syncResult: null,
-    };
+      syncResult: null
+    }
   }
 
   const syncResult = await syncDeviceRegistrationState({
     ...options,
     registrationState,
-    deferPostRegistrationWork: true,
-  });
+    deferPostRegistrationWork: true
+  })
 
   return {
     registrationState,
-    syncResult,
-  };
+    syncResult
+  }
 }

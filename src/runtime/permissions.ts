@@ -1,15 +1,15 @@
-import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import * as Notifications from 'expo-notifications'
+import { Platform } from 'react-native'
 
-import { ensureDefaultNotificationChannel } from './channels';
-import { failWithBubblesError } from '../internal/errors';
-import { assertSupportedPlatform } from '../internal/platform';
+import { ensureDefaultNotificationChannel } from './channels'
+import { failWithBubblesError } from '../internal/errors'
+import { assertSupportedPlatform } from '../internal/platform'
 
 const IOS_GRANTED_AUTHORIZATION_STATUSES = new Set([
   Notifications.IosAuthorizationStatus.AUTHORIZED,
   Notifications.IosAuthorizationStatus.PROVISIONAL,
-  Notifications.IosAuthorizationStatus.EPHEMERAL,
-]);
+  Notifications.IosAuthorizationStatus.EPHEMERAL
+])
 
 export type PermissionRequestOptions = Parameters<
   typeof Notifications.requestPermissionsAsync
@@ -20,61 +20,61 @@ export interface GetNotificationPermissionsOptions {
   permissionRequestOptions?: PermissionRequestOptions;
 }
 
-export function isNotificationPermissionGranted(
-  permissions: Notifications.NotificationPermissionsStatus,
+export function isNotificationPermissionGranted (
+  permissions: Notifications.NotificationPermissionsStatus
 ): boolean {
   if (Platform.OS === 'ios' && permissions.ios?.status != null) {
-    return IOS_GRANTED_AUTHORIZATION_STATUSES.has(permissions.ios.status);
+    return IOS_GRANTED_AUTHORIZATION_STATUSES.has(permissions.ios.status)
   }
 
-  return permissions.granted;
+  return permissions.granted
 }
 
-export function describeNotificationPermissionStatus(
-  permissions: Notifications.NotificationPermissionsStatus,
+export function describeNotificationPermissionStatus (
+  permissions: Notifications.NotificationPermissionsStatus
 ): string {
   if (Platform.OS === 'ios' && permissions.ios?.status != null) {
-    return Notifications.IosAuthorizationStatus[permissions.ios.status].toLowerCase();
+    return Notifications.IosAuthorizationStatus[permissions.ios.status].toLowerCase()
   }
 
-  return permissions.status;
+  return permissions.status
 }
 
-export async function getNotificationPermissions(
-  options?: GetNotificationPermissionsOptions,
+export async function getNotificationPermissions (
+  options?: GetNotificationPermissionsOptions
 ): Promise<Notifications.NotificationPermissionsStatus> {
-  assertSupportedPlatform(Platform.OS);
+  assertSupportedPlatform(Platform.OS)
 
-  await ensureDefaultNotificationChannel();
+  await ensureDefaultNotificationChannel()
 
   if (options?.requestPermissions === true) {
     return Notifications.requestPermissionsAsync(
-      options.permissionRequestOptions,
-    );
+      options.permissionRequestOptions
+    )
   }
 
-  const existingPermissions = await Notifications.getPermissionsAsync();
+  const existingPermissions = await Notifications.getPermissionsAsync()
 
   if (
     isNotificationPermissionGranted(existingPermissions) ||
     options?.requestPermissions === false
   ) {
-    return existingPermissions;
+    return existingPermissions
   }
 
   return Notifications.requestPermissionsAsync(
-    options?.permissionRequestOptions,
-  );
+    options?.permissionRequestOptions
+  )
 }
 
-export async function ensureNotificationPermissions(
-  options?: GetNotificationPermissionsOptions,
+export async function ensureNotificationPermissions (
+  options?: GetNotificationPermissionsOptions
 ): Promise<Notifications.NotificationPermissionsStatus> {
-  const permissions = await getNotificationPermissions(options);
+  const permissions = await getNotificationPermissions(options)
 
   if (!isNotificationPermissionGranted(permissions)) {
-    failWithBubblesError('Push notification permission was not granted.');
+    failWithBubblesError('Push notification permission was not granted.')
   }
 
-  return permissions;
+  return permissions
 }

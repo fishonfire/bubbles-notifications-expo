@@ -1,14 +1,14 @@
 import {
-  registerBubblesFirebaseBackgroundMessageHandler,
-} from './firebase-message-handler';
+  registerBubblesFirebaseBackgroundMessageHandler
+} from './firebase-message-handler'
 
-let hasRegisteredBubblesBackgroundHandlers = false;
+let hasRegisteredBubblesBackgroundHandlers = false
 
-export function registerBubblesBackgroundHandlers(): void {
+export function registerBubblesBackgroundHandlers (): void {
   if (hasRegisteredBubblesBackgroundHandlers) {
-    return;
+    return
   }
 
-  registerBubblesFirebaseBackgroundMessageHandler();
-  hasRegisteredBubblesBackgroundHandlers = true;
+  registerBubblesFirebaseBackgroundMessageHandler()
+  hasRegisteredBubblesBackgroundHandlers = true
 }

@@ -1,11 +1,11 @@
 import {
   getLocaleAndTimeZone,
-  type LocaleAndTimeZone,
-} from '@fishonfire/bubbles-js';
+  type LocaleAndTimeZone
+} from '@fishonfire/bubbles-js'
 import {
-  getRequiredNonEmptyString,
-} from '../internal/validation';
-import { failWithBubblesError } from '../internal/errors';
+  getRequiredNonEmptyString
+} from '../internal/validation'
+import { failWithBubblesError } from '../internal/errors'
 
 export type BubblesDevicePlatform = 'android' | 'ios';
 
@@ -43,104 +43,105 @@ export interface BubblesCreateDevicePayload extends BubblesDevicePayload {
 
 export type BubblesUpdateDevicePayload = BubblesDevicePayload;
 
-function normalizeOptionalString(
+function normalizeOptionalString (
   value: unknown,
-  fieldName: string,
+  fieldName: string
 ): string | null {
   if (value == null) {
-    return null;
+    return null
   }
 
   if (typeof value !== 'string') {
-    failWithBubblesError(`"${fieldName}" must be a string when present.`);
+    failWithBubblesError(`"${fieldName}" must be a string when present.`)
   }
 
-  const trimmedValue = value.trim();
-  return trimmedValue.length > 0 ? trimmedValue : null;
+  const trimmedValue = value.trim()
+
+  return trimmedValue.length > 0 ? trimmedValue : null
 }
 
-function normalizeRequiredNullableString(
+function normalizeRequiredNullableString (
   value: unknown,
-  fieldName: string,
+  fieldName: string
 ): string | null {
   if (value === null) {
-    return null;
+    return null
   }
 
   if (value === undefined) {
     failWithBubblesError(
-      `"${fieldName}" is required. Pass a push token string or null.`,
-    );
+      `"${fieldName}" is required. Pass a push token string or null.`
+    )
   }
 
-  return getRequiredNonEmptyString(value, fieldName);
+  return getRequiredNonEmptyString(value, fieldName)
 }
 
-function normalizeAppId(value: unknown): string | number {
+function normalizeAppId (value: unknown): string | number {
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
-      failWithBubblesError('"appId" must be a finite number.');
+      failWithBubblesError('"appId" must be a finite number.')
     }
 
-    return value;
+    return value
   }
 
   if (typeof value === 'string') {
-    return getRequiredNonEmptyString(value, 'appId');
+    return getRequiredNonEmptyString(value, 'appId')
   }
 
-  failWithBubblesError('"appId" must be a string or number.');
+  failWithBubblesError('"appId" must be a string or number.')
 }
 
-function normalizePlatform(value: unknown): BubblesDevicePlatform {
+function normalizePlatform (value: unknown): BubblesDevicePlatform {
   if (value === 'android' || value === 'ios') {
-    return value;
+    return value
   }
 
-  failWithBubblesError('"platform" must be either "android" or "ios".');
+  failWithBubblesError('"platform" must be either "android" or "ios".')
 }
 
-function normalizeAliasing(value: unknown): string[] {
+function normalizeAliasing (value: unknown): string[] {
   if (value == null) {
-    return [];
+    return []
   }
 
   if (!Array.isArray(value)) {
-    failWithBubblesError('"aliasing" must be an array of strings when present.');
+    failWithBubblesError('"aliasing" must be an array of strings when present.')
   }
 
   return value
     .map((entry, index) =>
-      normalizeOptionalString(entry, `aliasing[${index}]`),
+      normalizeOptionalString(entry, `aliasing[${index}]`)
     )
-    .filter((entry): entry is string => entry !== null);
+    .filter((entry): entry is string => entry !== null)
 }
 
-function normalizeNotificationsEnabled(value: unknown): boolean {
+function normalizeNotificationsEnabled (value: unknown): boolean {
   if (typeof value !== 'boolean') {
-    failWithBubblesError('"notificationsEnabled" must be a boolean.');
+    failWithBubblesError('"notificationsEnabled" must be a boolean.')
   }
 
-  return value;
+  return value
 }
 
-function resolveLocaleAndTimeZone(
-  input?: LocaleAndTimeZone,
+function resolveLocaleAndTimeZone (
+  input?: LocaleAndTimeZone
 ): { locale: string; timeZone: string | null } {
-  const resolved = input ?? getLocaleAndTimeZone();
+  const resolved = input ?? getLocaleAndTimeZone()
 
   return {
     locale: getRequiredNonEmptyString(resolved.locale, 'locale'),
-    timeZone: normalizeOptionalString(resolved.timeZone, 'timeZone'),
-  };
+    timeZone: normalizeOptionalString(resolved.timeZone, 'timeZone')
+  }
 }
 
-function buildBaseDevicePayload(
-  options: BuildBubblesDevicePayloadOptions,
+function buildBaseDevicePayload (
+  options: BuildBubblesDevicePayloadOptions
 ): BubblesDevicePayload {
   const { locale, timeZone } = resolveLocaleAndTimeZone(
-    options.localeAndTimeZone,
-  );
+    options.localeAndTimeZone
+  )
 
   const payload: BubblesDevicePayload = {
     user_id: getRequiredNonEmptyString(options.userId, 'userId'),
@@ -149,37 +150,38 @@ function buildBaseDevicePayload(
     push_token: normalizeRequiredNullableString(options.pushToken, 'pushToken'),
     locale,
     notifications_enabled: normalizeNotificationsEnabled(
-      options.notificationsEnabled,
-    ),
-  };
-
-  if ('fid' in options) {
-    payload.fid = normalizeOptionalString(options.fid, 'fid');
+      options.notificationsEnabled
+    )
   }
 
-  const appVersion = normalizeOptionalString(options.appVersion, 'appVersion');
+  if ('fid' in options) {
+    payload.fid = normalizeOptionalString(options.fid, 'fid')
+  }
+
+  const appVersion = normalizeOptionalString(options.appVersion, 'appVersion')
+
   if (appVersion) {
-    payload.app_version = appVersion;
+    payload.app_version = appVersion
   }
 
   if (timeZone) {
-    payload.timezone = timeZone;
+    payload.timezone = timeZone
   }
 
-  return payload;
+  return payload
 }
 
-export function buildCreateDevicePayload(
-  options: BuildBubblesCreateDevicePayloadOptions,
+export function buildCreateDevicePayload (
+  options: BuildBubblesCreateDevicePayloadOptions
 ): BubblesCreateDevicePayload {
   return {
     app_id: normalizeAppId(options.appId),
-    ...buildBaseDevicePayload(options),
-  };
+    ...buildBaseDevicePayload(options)
+  }
 }
 
-export function buildUpdateDevicePayload(
-  options: BuildBubblesDevicePayloadOptions,
+export function buildUpdateDevicePayload (
+  options: BuildBubblesDevicePayloadOptions
 ): BubblesUpdateDevicePayload {
-  return buildBaseDevicePayload(options);
+  return buildBaseDevicePayload(options)
 }

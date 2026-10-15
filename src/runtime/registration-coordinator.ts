@@ -2,104 +2,107 @@ import {
   useCallback,
   useRef,
   type Dispatch,
-  type SetStateAction,
-} from 'react';
+  type SetStateAction
+} from 'react'
 
-import { BubblesNotificationsSyncError } from './sync-device';
+import { BubblesNotificationsSyncError } from './sync-device'
 import {
   getRuntimeStateUpdate,
   normalizeProviderError,
   type BubblesNotificationsRuntimeState,
-  type RuntimeStateUpdate,
-} from './provider-state';
+  type RuntimeStateUpdate
+} from './provider-state'
 
 type RegistrationOperation = () => Promise<RuntimeStateUpdate | void>;
 
-export function useBubblesRegistrationCoordinator(
+function getFailedRuntimeState (error: unknown): Partial<RuntimeStateUpdate> {
+  return error instanceof BubblesNotificationsSyncError
+    ? getRuntimeStateUpdate(error.snapshot)
+    : {}
+}
+
+export function useBubblesRegistrationCoordinator (
   setState: Dispatch<
     SetStateAction<BubblesNotificationsRuntimeState>
-  >,
+  >
 ) {
-  const isMountedRef = useRef(true);
-  const pendingRegistrationsRef = useRef(0);
-  const currentRegistrationRef = useRef<Promise<void> | null>(null);
+  const isMountedRef = useRef(true)
+  const pendingRegistrationsRef = useRef(0)
+  const currentRegistrationRef = useRef<Promise<void> | null>(null)
 
   const runRegistration = useCallback((
-    operation: RegistrationOperation,
+    operation: RegistrationOperation
   ): Promise<void> => {
-    pendingRegistrationsRef.current += 1;
+    pendingRegistrationsRef.current += 1
 
     setState((currentState) => ({
       ...currentState,
       isSyncing: true,
-      error: null,
-    }));
+      error: null
+    }))
 
-    const previousRegistration = currentRegistrationRef.current;
+    const previousRegistration = currentRegistrationRef.current
     const registration = (previousRegistration ?? Promise.resolve())
       .then(operation)
       .then(
         (result) => {
           if (!isMountedRef.current) {
-            return;
+            return
           }
 
           setState((currentState) => ({
             ...currentState,
             ...(result ?? {}),
-            error: null,
-          }));
+            error: null
+          }))
         },
         (error) => {
-          const normalizedError = normalizeProviderError(error);
-          const snapshot =
-            error instanceof BubblesNotificationsSyncError
-              ? error.snapshot
-              : undefined;
+          const normalizedError = normalizeProviderError(error)
+          const failedRuntimeState = getFailedRuntimeState(error)
 
           if (isMountedRef.current) {
             setState((currentState) => ({
               ...currentState,
-              ...(snapshot ? getRuntimeStateUpdate(snapshot) : {}),
-              error: normalizedError,
-            }));
+              ...failedRuntimeState,
+              error: normalizedError
+            }))
           }
 
-          throw normalizedError;
-        },
+          throw normalizedError
+        }
       )
       .finally(() => {
-        pendingRegistrationsRef.current -= 1;
+        pendingRegistrationsRef.current -= 1
 
         if (isMountedRef.current) {
           setState((currentState) => ({
             ...currentState,
-            isSyncing: pendingRegistrationsRef.current > 0,
-          }));
+            isSyncing: pendingRegistrationsRef.current > 0
+          }))
         }
-      });
+      })
     const registrationCompletion = registration.then(
       () => undefined,
-      () => undefined,
-    );
+      () => undefined
+    )
 
-    currentRegistrationRef.current = registrationCompletion;
+    currentRegistrationRef.current = registrationCompletion
     void registrationCompletion.then(() => {
       if (currentRegistrationRef.current === registrationCompletion) {
-        currentRegistrationRef.current = null;
+        currentRegistrationRef.current = null
       }
-    });
+    })
 
-    return registration;
-  }, [setState]);
+    return registration
+  }, [setState])
 
   const waitForCurrentRegistration = useCallback(async (): Promise<void> => {
-    await currentRegistrationRef.current;
-  }, []);
+    await currentRegistrationRef.current
+  }, [])
 
   return {
     isMountedRef,
     runRegistration,
-    waitForCurrentRegistration,
-  };
+    waitForCurrentRegistration
+  }
 }

@@ -1,85 +1,94 @@
-import assert from 'node:assert/strict';
-import { beforeEach, test, vi } from 'vitest';
+import assert from 'node:assert/strict'
+import { beforeEach, test, vi } from 'vitest'
 
-const pluginCalls: string[] = [];
+const RUNTIME_DEFAULTS = 'runtime-defaults'
+const EXPO_NOTIFICATIONS = 'expo-notifications'
+const FIREBASE_MESSAGING_MANIFEST = 'firebase-messaging-manifest'
+const IOS_FID_REGISTRATION = 'ios-fid-registration'
+const ANDROID_FID_REGISTRATION = 'android-fid-registration'
+const RNFB_MAIN_THREAD_PATCH = 'rnfb-main-thread-patch'
+const RNFIREBASE_DISABLE_SPM = 'rnfirebase-disable-spm'
 
-function mockPlugin(modulePath: string, name: string): void {
+const pluginCalls: string[] = []
+
+function mockPlugin (modulePath: string, name: string): void {
   vi.doMock(modulePath, () => ({
-    default(config: Record<string, unknown>) {
-      pluginCalls.push(name);
-      return config;
-    },
-  }));
+    default (config: Record<string, unknown>) {
+      pluginCalls.push(name)
+
+      return config
+    }
+  }))
 }
 
 vi.doMock('../../plugin/src/config.ts', () => ({
-  normalizePluginConfig(input?: {
+  normalizePluginConfig (input?: {
     enableFirebaseInstallationPushRegistration?: boolean;
   }) {
     return {
       enableFirebaseInstallationPushRegistration:
-        input?.enableFirebaseInstallationPushRegistration ?? false,
-    };
-  },
-}));
+        input?.enableFirebaseInstallationPushRegistration ?? false
+    }
+  }
+}))
 
-mockPlugin('../../plugin/src/with-runtime-defaults.ts', 'runtime-defaults');
-mockPlugin('../../plugin/src/with-expo-notifications.ts', 'expo-notifications');
+mockPlugin('../../plugin/src/with-runtime-defaults.ts', RUNTIME_DEFAULTS)
+mockPlugin('../../plugin/src/with-expo-notifications.ts', EXPO_NOTIFICATIONS)
 mockPlugin(
   '../../plugin/src/with-firebase-messaging-manifest.ts',
-  'firebase-messaging-manifest',
-);
+  FIREBASE_MESSAGING_MANIFEST
+)
 mockPlugin(
   '../../plugin/src/with-ios-firebase-messaging-registration.ts',
-  'ios-fid-registration',
-);
+  IOS_FID_REGISTRATION
+)
 mockPlugin(
   '../../plugin/src/with-firebase-messaging-registration.ts',
-  'android-fid-registration',
-);
+  ANDROID_FID_REGISTRATION
+)
 mockPlugin(
   '../../plugin/src/with-rnfb-messaging-main-thread-patch.ts',
-  'rnfb-main-thread-patch',
-);
+  RNFB_MAIN_THREAD_PATCH
+)
 mockPlugin(
   '../../plugin/src/with-rnfirebase-disable-spm.ts',
-  'rnfirebase-disable-spm',
-);
+  RNFIREBASE_DISABLE_SPM
+)
 
 const { default: withBubblesNotificationsExpo } = await import(
   '../../plugin/src/index.ts'
-);
+)
 
 beforeEach(() => {
-  pluginCalls.length = 0;
-});
+  pluginCalls.length = 0
+})
 
 test('default plugin configuration applies cleanup-capable FID mods', () => {
-  withBubblesNotificationsExpo({} as never, undefined);
+  withBubblesNotificationsExpo({} as never, undefined)
 
   assert.deepEqual(pluginCalls, [
-    'runtime-defaults',
-    'expo-notifications',
-    'firebase-messaging-manifest',
-    'rnfb-main-thread-patch',
-    'rnfirebase-disable-spm',
-    'ios-fid-registration',
-    'android-fid-registration',
-  ]);
-});
+    RUNTIME_DEFAULTS,
+    EXPO_NOTIFICATIONS,
+    FIREBASE_MESSAGING_MANIFEST,
+    RNFB_MAIN_THREAD_PATCH,
+    RNFIREBASE_DISABLE_SPM,
+    IOS_FID_REGISTRATION,
+    ANDROID_FID_REGISTRATION
+  ])
+})
 
 test('enabled plugin configuration applies messaging safety and FID native mods', () => {
   withBubblesNotificationsExpo({} as never, {
-    enableFirebaseInstallationPushRegistration: true,
-  });
+    enableFirebaseInstallationPushRegistration: true
+  })
 
   assert.deepEqual(pluginCalls, [
-    'runtime-defaults',
-    'expo-notifications',
-    'firebase-messaging-manifest',
-    'rnfb-main-thread-patch',
-    'rnfirebase-disable-spm',
-    'ios-fid-registration',
-    'android-fid-registration',
-  ]);
-});
+    RUNTIME_DEFAULTS,
+    EXPO_NOTIFICATIONS,
+    FIREBASE_MESSAGING_MANIFEST,
+    RNFB_MAIN_THREAD_PATCH,
+    RNFIREBASE_DISABLE_SPM,
+    IOS_FID_REGISTRATION,
+    ANDROID_FID_REGISTRATION
+  ])
+})

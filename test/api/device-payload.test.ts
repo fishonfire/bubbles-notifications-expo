@@ -1,10 +1,10 @@
-import assert from 'node:assert/strict';
-import { test } from 'vitest';
+import assert from 'node:assert/strict'
+import { test } from 'vitest'
 
 import {
   buildCreateDevicePayload,
-  buildUpdateDevicePayload,
-} from '../../src/api/device-payload';
+  buildUpdateDevicePayload
+} from '../../src/api/device-payload'
 
 test('buildCreateDevicePayload normalizes values and includes create-only fields', () => {
   const payload = buildCreateDevicePayload({
@@ -18,9 +18,9 @@ test('buildCreateDevicePayload normalizes values and includes create-only fields
     notificationsEnabled: true,
     localeAndTimeZone: {
       locale: ' en-US ',
-      timeZone: ' Europe/Amsterdam ',
-    },
-  });
+      timeZone: ' Europe/Amsterdam '
+    }
+  })
 
   assert.deepEqual(payload, {
     app_id: 'app-123',
@@ -32,9 +32,9 @@ test('buildCreateDevicePayload normalizes values and includes create-only fields
     app_version: '1.2.3',
     locale: 'en-US',
     timezone: 'Europe/Amsterdam',
-    notifications_enabled: true,
-  });
-});
+    notifications_enabled: true
+  })
+})
 
 test('buildUpdateDevicePayload omits create-only fields and optional blanks', () => {
   const payload = buildUpdateDevicePayload({
@@ -47,9 +47,9 @@ test('buildUpdateDevicePayload omits create-only fields and optional blanks', ()
     notificationsEnabled: false,
     localeAndTimeZone: {
       locale: ' nl-NL ',
-      timeZone: '   ',
-    },
-  });
+      timeZone: '   '
+    }
+  })
 
   assert.deepEqual(payload, {
     user_id: 'user-456',
@@ -58,9 +58,9 @@ test('buildUpdateDevicePayload omits create-only fields and optional blanks', ()
     push_token: null,
     fid: null,
     locale: 'nl-NL',
-    notifications_enabled: false,
-  });
-});
+    notifications_enabled: false
+  })
+})
 
 test('buildCreateDevicePayload rejects non-finite numeric app ids', () => {
   assert.throws(
@@ -74,12 +74,12 @@ test('buildCreateDevicePayload rejects non-finite numeric app ids', () => {
         notificationsEnabled: true,
         localeAndTimeZone: {
           locale: 'en-US',
-          timeZone: 'UTC',
-        },
+          timeZone: 'UTC'
+        }
       }),
-    /"appId" must be a finite number\./,
-  );
-});
+    /"appId" must be a finite number\./
+  )
+})
 
 test('buildUpdateDevicePayload rejects an undefined push token input', () => {
   assert.throws(
@@ -92,9 +92,9 @@ test('buildUpdateDevicePayload rejects an undefined push token input', () => {
         notificationsEnabled: true,
         localeAndTimeZone: {
           locale: 'en-US',
-          timeZone: 'UTC',
-        },
+          timeZone: 'UTC'
+        }
       }),
-    /"pushToken" is required\. Pass a push token string or null\./,
-  );
-});
+    /"pushToken" is required\. Pass a push token string or null\./
+  )
+})
