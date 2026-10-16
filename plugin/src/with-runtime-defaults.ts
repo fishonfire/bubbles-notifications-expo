@@ -1,7 +1,7 @@
-import type { ExpoConfig } from '@expo/config-types';
+import type { ExpoConfig } from '@expo/config-types'
 
-import type { NormalizedBubblesNotificationsExpoPluginConfig } from './config';
-import { BUBBLES_NOTIFICATIONS_EXPO_EXTRA_KEY } from './shared-config';
+import type { NormalizedBubblesNotificationsExpoPluginConfig } from './config'
+import { BUBBLES_NOTIFICATIONS_EXPO_EXTRA_KEY } from './shared-config'
 
 type RuntimeDefaults = Pick<
   NormalizedBubblesNotificationsExpoPluginConfig,
@@ -11,31 +11,31 @@ type RuntimeDefaults = Pick<
   | 'enableFirebaseInstallationPushRegistration'
 >;
 
-function fail(message: string): never {
-  throw new Error(`[@fishonfire/bubbles-expo] ${message}`);
+function fail (message: string): never {
+  throw new Error(`[@fishonfire/bubbles-expo] ${message}`)
 }
 
-function isPlainObject(
-  value: unknown,
+function isPlainObject (
+  value: unknown
 ): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-export default function withRuntimeDefaults(
+export default function withRuntimeDefaults (
   config: ExpoConfig,
-  options: NormalizedBubblesNotificationsExpoPluginConfig,
+  options: NormalizedBubblesNotificationsExpoPluginConfig
 ): ExpoConfig {
-  const existingExtra = config.extra ?? {};
+  const existingExtra = config.extra ?? {}
   const existingRuntimeDefaults =
-    existingExtra[BUBBLES_NOTIFICATIONS_EXPO_EXTRA_KEY];
+    existingExtra[BUBBLES_NOTIFICATIONS_EXPO_EXTRA_KEY]
 
   if (
     existingRuntimeDefaults !== undefined &&
     !isPlainObject(existingRuntimeDefaults)
   ) {
     fail(
-      `"expo.extra.${BUBBLES_NOTIFICATIONS_EXPO_EXTRA_KEY}" must be an object when it is defined.`,
-    );
+      `"expo.extra.${BUBBLES_NOTIFICATIONS_EXPO_EXTRA_KEY}" must be an object when it is defined.`
+    )
   }
 
   const runtimeDefaults: RuntimeDefaults = {
@@ -43,8 +43,8 @@ export default function withRuntimeDefaults(
     defaultChannelName: options.defaultChannelName,
     androidChannelImportance: options.androidChannelImportance,
     enableFirebaseInstallationPushRegistration:
-      options.enableFirebaseInstallationPushRegistration,
-  };
+      options.enableFirebaseInstallationPushRegistration
+  }
 
   return {
     ...config,
@@ -52,8 +52,8 @@ export default function withRuntimeDefaults(
       ...existingExtra,
       [BUBBLES_NOTIFICATIONS_EXPO_EXTRA_KEY]: {
         ...(existingRuntimeDefaults ?? {}),
-        ...runtimeDefaults,
-      },
-    },
-  };
+        ...runtimeDefaults
+      }
+    }
+  }
 }

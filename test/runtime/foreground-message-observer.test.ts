@@ -1,265 +1,274 @@
-import assert from 'node:assert/strict';
-import { beforeEach, test, vi } from 'vitest';
+import assert from 'node:assert/strict'
+import { beforeEach, test, vi } from 'vitest'
+
+const NOTIFICATION_ID = 'notification-123'
+const FOREGROUND_TITLE = 'Foreground title'
+const FOREGROUND_BODY = 'Foreground body'
+const FIREBASE_FOREGROUND_MESSAGE = 'Firebase foreground message'
 
 const platformState = {
-  OS: 'android',
-};
+  OS: 'android'
+}
 
 const messagingCalls = {
   getMessaging: 0,
-  onMessage: [] as Array<{
+  onMessage: [] as {
     messaging: unknown;
     listener: (remoteMessage: Record<string, unknown>) => void;
-  }>,
-  unsubscribe: 0,
-};
+  }[],
+  unsubscribe: 0
+}
 
 const messagingState = {
   instance: {
-    mock: true,
-  },
-};
+    mock: true
+  }
+}
 
 const notificationState = {
   permissions: {
     granted: true,
-    status: 'granted',
-  },
-};
+    status: 'granted'
+  }
+}
 
 const notificationCalls = {
   getPermissions: 0,
-  schedule: [] as Array<Record<string, unknown>>,
-};
-const deliveryStatusCalls: Array<Record<string, unknown>> = [];
-let receivedStatusPromise: Promise<void> | null = null;
+  schedule: [] as Record<string, unknown>[]
+}
+const deliveryStatusCalls: Record<string, unknown>[] = []
+let receivedStatusPromise: Promise<void> | null = null
 
-async function flushMicrotasks() {
+async function flushMicrotasks () {
   for (let index = 0; index < 5; index += 1) {
-    await Promise.resolve();
+    await Promise.resolve()
   }
 }
 
 vi.doMock('react-native', () => ({
-  Platform: platformState,
-}));
+  Platform: platformState
+}))
 
 vi.doMock('@react-native-firebase/messaging', () => ({
   getMessaging: () => {
-    messagingCalls.getMessaging += 1;
-    return messagingState.instance;
+    messagingCalls.getMessaging += 1
+
+    return messagingState.instance
   },
   onMessage: (
     messaging: unknown,
-    listener: (remoteMessage: Record<string, unknown>) => void,
+    listener: (remoteMessage: Record<string, unknown>) => void
   ) => {
     messagingCalls.onMessage.push({
       messaging,
-      listener,
-    });
+      listener
+    })
 
     return () => {
-      messagingCalls.unsubscribe += 1;
-    };
-  },
-}));
+      messagingCalls.unsubscribe += 1
+    }
+  }
+}))
 
 vi.doMock('expo-notifications', () => ({
   SchedulableTriggerInputTypes: {
-    TIME_INTERVAL: 'timeInterval',
+    TIME_INTERVAL: 'timeInterval'
   },
   getPermissionsAsync: async () => {
-    notificationCalls.getPermissions += 1;
-    return notificationState.permissions;
+    notificationCalls.getPermissions += 1
+
+    return notificationState.permissions
   },
   scheduleNotificationAsync: async (
-    request: Record<string, unknown>,
+    request: Record<string, unknown>
   ) => {
-    notificationCalls.schedule.push(request);
-    return 'scheduled-notification-id';
-  },
-}));
+    notificationCalls.schedule.push(request)
+
+    return 'scheduled-notification-id'
+  }
+}))
 
 vi.doMock('../../src/notifications/delivery-status.ts', () => ({
   observeStoredBubblesNotificationReceived: async (
-    options: Record<string, unknown>,
+    options: Record<string, unknown>
   ) => {
-    deliveryStatusCalls.push({ ...options, status: 'received' });
-    await receivedStatusPromise;
+    deliveryStatusCalls.push({ ...options, status: 'received' })
+    await receivedStatusPromise
   },
   observeStoredBubblesLocalDisplayRequested: async (
-    options: Record<string, unknown>,
+    options: Record<string, unknown>
   ) => {
-    deliveryStatusCalls.push({ ...options, status: 'shown' });
-  },
-}));
+    deliveryStatusCalls.push({ ...options, status: 'shown' })
+  }
+}))
 
 vi.doMock('../../src/runtime/permissions.ts', () => ({
   isNotificationPermissionGranted: (
-    permissions: Record<string, unknown>,
-  ) => permissions.granted === true,
-}));
+    permissions: Record<string, unknown>
+  ) => permissions.granted === true
+}))
 
 const { observeBubblesForegroundMessages } = await import(
   '../../src/runtime/foreground-message-observer.ts'
-);
+)
 
 beforeEach(() => {
-  vi.resetModules();
-  platformState.OS = 'android';
-  messagingCalls.getMessaging = 0;
-  messagingCalls.onMessage.length = 0;
-  messagingCalls.unsubscribe = 0;
+  vi.resetModules()
+  platformState.OS = 'android'
+  messagingCalls.getMessaging = 0
+  messagingCalls.onMessage.length = 0
+  messagingCalls.unsubscribe = 0
   notificationState.permissions = {
     granted: true,
-    status: 'granted',
-  };
-  notificationCalls.getPermissions = 0;
-  notificationCalls.schedule.length = 0;
-  deliveryStatusCalls.length = 0;
-  receivedStatusPromise = null;
-});
+    status: 'granted'
+  }
+  notificationCalls.getPermissions = 0
+  notificationCalls.schedule.length = 0
+  deliveryStatusCalls.length = 0
+  receivedStatusPromise = null
+})
 
 test('foreground message observer subscribes on supported platforms and schedules a local notification', async () => {
-  const cleanup = observeBubblesForegroundMessages();
+  const cleanup = observeBubblesForegroundMessages()
 
-  assert.equal(messagingCalls.getMessaging, 1);
-  assert.equal(messagingCalls.onMessage.length, 1);
+  assert.equal(messagingCalls.getMessaging, 1)
+  assert.equal(messagingCalls.onMessage.length, 1)
   assert.equal(
     messagingCalls.onMessage[0]?.messaging,
-    messagingState.instance,
-  );
+    messagingState.instance
+  )
 
   messagingCalls.onMessage[0]?.listener({
     data: {
-      notification_id: 'notification-123',
-      url: '/inbox',
+      notification_id: NOTIFICATION_ID,
+      url: '/inbox'
     },
     notification: {
-      title: 'Foreground title',
-      body: 'Foreground body',
-    },
-  });
+      title: FOREGROUND_TITLE,
+      body: FOREGROUND_BODY
+    }
+  })
 
-  await flushMicrotasks();
+  await flushMicrotasks()
 
-  assert.equal(notificationCalls.getPermissions, 1);
+  assert.equal(notificationCalls.getPermissions, 1)
   assert.deepEqual(notificationCalls.schedule, [
     {
       content: {
-        title: 'Foreground title',
-        body: 'Foreground body',
+        title: FOREGROUND_TITLE,
+        body: FOREGROUND_BODY,
         data: {
-          notification_id: 'notification-123',
-          url: '/inbox',
-        },
+          notification_id: NOTIFICATION_ID,
+          url: '/inbox'
+        }
       },
       trigger: {
         type: 'timeInterval',
-        seconds: 1,
-      },
-    },
-  ]);
+        seconds: 1
+      }
+    }
+  ])
   assert.deepEqual(deliveryStatusCalls, [
     {
-      source: 'Firebase foreground message',
-      notificationId: 'notification-123',
-      status: 'received',
+      source: FIREBASE_FOREGROUND_MESSAGE,
+      notificationId: NOTIFICATION_ID,
+      status: 'received'
     },
     {
-      source: 'Firebase foreground message',
-      notificationId: 'notification-123',
-      status: 'shown',
-    },
-  ]);
+      source: FIREBASE_FOREGROUND_MESSAGE,
+      notificationId: NOTIFICATION_ID,
+      status: 'shown'
+    }
+  ])
 
-  cleanup();
-  assert.equal(messagingCalls.unsubscribe, 1);
-});
+  cleanup()
+  assert.equal(messagingCalls.unsubscribe, 1)
+})
 
 test('foreground message observer reports data-only messages as received without displaying them', async () => {
-  const cleanup = observeBubblesForegroundMessages();
+  const cleanup = observeBubblesForegroundMessages()
 
   messagingCalls.onMessage[0]?.listener({
     data: {
       notification_id: 'notification-data-only',
       type: 'sync',
-      resource_id: 'thread-123',
-    },
-  });
+      resource_id: 'thread-123'
+    }
+  })
 
-  await flushMicrotasks();
+  await flushMicrotasks()
 
-  assert.equal(notificationCalls.getPermissions, 0);
-  assert.deepEqual(notificationCalls.schedule, []);
+  assert.equal(notificationCalls.getPermissions, 0)
+  assert.deepEqual(notificationCalls.schedule, [])
   assert.deepEqual(deliveryStatusCalls, [
     {
-      source: 'Firebase foreground message',
+      source: FIREBASE_FOREGROUND_MESSAGE,
       notificationId: 'notification-data-only',
-      status: 'received',
-    },
-  ]);
+      status: 'received'
+    }
+  ])
 
-  cleanup();
-});
+  cleanup()
+})
 
 test('foreground message observer reports display messages as received when local display is unavailable', async () => {
   notificationState.permissions = {
     granted: false,
-    status: 'denied',
-  };
-  const cleanup = observeBubblesForegroundMessages();
+    status: 'denied'
+  }
+  const cleanup = observeBubblesForegroundMessages()
 
   messagingCalls.onMessage[0]?.listener({
     data: {
-      notification_id: 'notification-disabled',
+      notification_id: 'notification-disabled'
     },
     notification: {
-      title: 'Foreground title',
-      body: 'Foreground body',
-    },
-  });
+      title: FOREGROUND_TITLE,
+      body: FOREGROUND_BODY
+    }
+  })
 
-  await flushMicrotasks();
+  await flushMicrotasks()
 
-  assert.equal(notificationCalls.getPermissions, 1);
-  assert.deepEqual(notificationCalls.schedule, []);
+  assert.equal(notificationCalls.getPermissions, 1)
+  assert.deepEqual(notificationCalls.schedule, [])
   assert.deepEqual(deliveryStatusCalls, [
     {
-      source: 'Firebase foreground message',
+      source: FIREBASE_FOREGROUND_MESSAGE,
       notificationId: 'notification-disabled',
-      status: 'received',
-    },
-  ]);
+      status: 'received'
+    }
+  ])
 
-  cleanup();
-});
+  cleanup()
+})
 
 test('foreground message observer skips unsupported platforms', () => {
-  platformState.OS = 'web';
+  platformState.OS = 'web'
 
-  const cleanup = observeBubblesForegroundMessages();
+  const cleanup = observeBubblesForegroundMessages()
 
-  assert.equal(messagingCalls.getMessaging, 0);
-  assert.equal(messagingCalls.onMessage.length, 0);
+  assert.equal(messagingCalls.getMessaging, 0)
+  assert.equal(messagingCalls.onMessage.length, 0)
 
-  cleanup();
-  assert.equal(messagingCalls.unsubscribe, 0);
-});
+  cleanup()
+  assert.equal(messagingCalls.unsubscribe, 0)
+})
 
 test('foreground display proceeds while received status reporting is pending', async () => {
-  let resolveStatus!: () => void;
-  receivedStatusPromise = new Promise<void>(resolve => { resolveStatus = resolve; });
-  const cleanup = observeBubblesForegroundMessages();
+  let resolveStatus!: () => void
+
+  receivedStatusPromise = new Promise<void>(resolve => { resolveStatus = resolve })
+  const cleanup = observeBubblesForegroundMessages()
 
   messagingCalls.onMessage[0]?.listener({
     data: { notification_id: 'notification-slow-api' },
-    notification: { title: 'Display immediately', body: 'Pending reporting' },
-  });
-  await flushMicrotasks();
+    notification: { title: 'Display immediately', body: 'Pending reporting' }
+  })
+  await flushMicrotasks()
 
-  assert.equal(notificationCalls.schedule.length, 1);
-  resolveStatus();
-  await flushMicrotasks();
-  cleanup();
-});
+  assert.equal(notificationCalls.schedule.length, 1)
+  resolveStatus()
+  await flushMicrotasks()
+  cleanup()
+})

@@ -1,115 +1,116 @@
 import {
   getMessaging,
-  setBackgroundMessageHandler,
-} from '@react-native-firebase/messaging';
-import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+  setBackgroundMessageHandler
+} from '@react-native-firebase/messaging'
+import * as Notifications from 'expo-notifications'
+import { Platform } from 'react-native'
 
-import { getErrorMessage } from '../internal/errors';
+import { getErrorMessage } from '../internal/errors'
 import {
   observeStoredBubblesNotificationReceived,
   observeStoredBubblesNotificationsDisabled,
-  postStoredBubblesDeliveryStatus,
-} from '../notifications/delivery-status';
+  postStoredBubblesDeliveryStatus
+} from '../notifications/delivery-status'
 import {
-  scheduleBubblesLocalNotification,
-} from '../notifications/local-notification';
+  scheduleBubblesLocalNotification
+} from '../notifications/local-notification'
 import {
   getBubblesNotificationPayloadFromRemoteMessage,
-  hasFirebaseDisplayNotification,
-} from '../notifications/remote-message';
-import { isNotificationPermissionGranted } from '../runtime/permissions';
+  hasFirebaseDisplayNotification
+} from '../notifications/remote-message'
+import { isNotificationPermissionGranted } from '../runtime/permissions'
 
 type FirebaseBackgroundMessageHandler = Parameters<
   typeof setBackgroundMessageHandler
 >[1];
-const BACKGROUND_NOTIFICATION_SOURCE = 'Firebase background message';
+const BACKGROUND_NOTIFICATION_SOURCE = 'Firebase background message'
 const DEFAULT_BACKGROUND_NOTIFICATION_TITLE =
-  'Background notification received';
+  'Background notification received'
 const DEFAULT_BACKGROUND_NOTIFICATION_BODY =
-  'Open the app to view this update.';
+  'Open the app to view this update.'
 
-function supportsFirebaseBackgroundMessages(): boolean {
-  return Platform.OS === 'android' || Platform.OS === 'ios';
+function supportsFirebaseBackgroundMessages (): boolean {
+  return Platform.OS === 'android' || Platform.OS === 'ios'
 }
 
-function supportsBackgroundLocalNotificationPresentation(): boolean {
-  return Platform.OS === 'android';
+function supportsBackgroundLocalNotificationPresentation (): boolean {
+  return Platform.OS === 'android'
 }
 
-function logBackgroundStatusError(
+function logBackgroundStatusError (
   description: string,
-  error: unknown,
+  error: unknown
 ) {
   console.error(
     `[@fishonfire/bubbles-expo] Failed to post ${BACKGROUND_NOTIFICATION_SOURCE} ${description} delivery status.`,
-    error,
-  );
+    error
+  )
 }
 
-function getBackgroundNotificationErrorMessage(error: unknown): string {
+function getBackgroundNotificationErrorMessage (error: unknown): string {
   if (!(error instanceof Error)) {
-    return 'Failed to show notification';
+    return 'Failed to show notification'
   }
 
-  return `Failed to show notification: ${getErrorMessage(error)}`;
+  return `Failed to show notification: ${getErrorMessage(error)}`
 }
 
-async function postBackgroundDeliveryError(
+async function postBackgroundDeliveryError (
   notificationId: string | null,
-  errorMessage: string,
+  errorMessage: string
 ) {
   try {
     await postStoredBubblesDeliveryStatus({
       source: BACKGROUND_NOTIFICATION_SOURCE,
       notificationId,
-      error: errorMessage,
-    });
+      error: errorMessage
+    })
   } catch (error) {
-    logBackgroundStatusError('error', error);
+    logBackgroundStatusError('error', error)
   }
 }
 
-function postBackgroundNotificationsDisabled(notificationId: string | null) {
+function postBackgroundNotificationsDisabled (notificationId: string | null) {
   return observeStoredBubblesNotificationsDisabled({
     source: BACKGROUND_NOTIFICATION_SOURCE,
-    notificationId,
+    notificationId
   }).catch((error) => {
-    logBackgroundStatusError('disabled', error);
-  });
+    logBackgroundStatusError('disabled', error)
+  })
 }
 
-let hasRegisteredFirebaseBackgroundMessageHandler = false;
+let hasRegisteredFirebaseBackgroundMessageHandler = false
 
 const handleBubblesFirebaseBackgroundMessage: FirebaseBackgroundMessageHandler =
   async (remoteMessage) => {
     const payload =
-      getBubblesNotificationPayloadFromRemoteMessage(remoteMessage);
+      getBubblesNotificationPayloadFromRemoteMessage(remoteMessage)
 
     try {
       await observeStoredBubblesNotificationReceived({
         source: BACKGROUND_NOTIFICATION_SOURCE,
-        notificationId: payload.notificationId,
-      });
+        notificationId: payload.notificationId
+      })
     } catch (error) {
-      logBackgroundStatusError('received', error);
+      logBackgroundStatusError('received', error)
     }
 
-    const permissions = await Notifications.getPermissionsAsync();
+    const permissions = await Notifications.getPermissionsAsync()
     const notificationsEnabled =
-      isNotificationPermissionGranted(permissions);
+      isNotificationPermissionGranted(permissions)
 
     if (!notificationsEnabled) {
-      await postBackgroundNotificationsDisabled(payload.notificationId);
-      return;
+      await postBackgroundNotificationsDisabled(payload.notificationId)
+
+      return
     }
 
     if (hasFirebaseDisplayNotification(remoteMessage)) {
-      return;
+      return
     }
 
     if (!supportsBackgroundLocalNotificationPresentation()) {
-      return;
+      return
     }
 
     try {
@@ -119,41 +120,41 @@ const handleBubblesFirebaseBackgroundMessage: FirebaseBackgroundMessageHandler =
           payload,
           title: DEFAULT_BACKGROUND_NOTIFICATION_TITLE,
           body: DEFAULT_BACKGROUND_NOTIFICATION_BODY,
-          skipPermissionCheck: true,
-        });
+          skipPermissionCheck: true
+        })
 
       if (scheduledNotificationId === null) {
-        return;
+        return
       }
     } catch (error) {
       await postBackgroundDeliveryError(
         payload.notificationId,
-        getBackgroundNotificationErrorMessage(error),
-      );
-      throw error;
+        getBackgroundNotificationErrorMessage(error)
+      )
+      throw error
     }
 
-  };
+  }
 
-export function registerBubblesFirebaseBackgroundMessageHandler(): void {
+export function registerBubblesFirebaseBackgroundMessageHandler (): void {
   if (hasRegisteredFirebaseBackgroundMessageHandler) {
-    return;
+    return
   }
 
   if (!supportsFirebaseBackgroundMessages()) {
-    return;
+    return
   }
 
   try {
     setBackgroundMessageHandler(
       getMessaging(),
-      handleBubblesFirebaseBackgroundMessage,
-    );
-    hasRegisteredFirebaseBackgroundMessageHandler = true;
+      handleBubblesFirebaseBackgroundMessage
+    )
+    hasRegisteredFirebaseBackgroundMessageHandler = true
   } catch (error) {
     console.error(
       '[@fishonfire/bubbles-expo] Failed to register Firebase background message handler.',
-      error,
-    );
+      error
+    )
   }
 }

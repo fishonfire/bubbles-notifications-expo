@@ -1,25 +1,25 @@
-import assert from 'node:assert/strict';
-import { beforeEach, test, vi } from 'vitest';
+import assert from 'node:assert/strict'
+import { beforeEach, test, vi } from 'vitest'
 
 const expoConstants = {
   expoConfig: undefined as
     | {
         extra?: Record<string, unknown>;
       }
-    | undefined,
-};
+    | undefined
+}
 
 vi.doMock('expo-constants', () => ({
-  default: expoConstants,
-}));
+  default: expoConstants
+}))
 
 const {
-  getBubblesNotificationsRuntimeConfig,
-} = await import('../../src/config/runtime-config.ts');
+  getBubblesNotificationsRuntimeConfig
+} = await import('../../src/config/runtime-config.ts')
 
 beforeEach(() => {
-  expoConstants.expoConfig = undefined;
-});
+  expoConstants.expoConfig = undefined
+})
 
 test('reads and normalizes runtime config from expo.extra', () => {
   expoConstants.expoConfig = {
@@ -28,18 +28,18 @@ test('reads and normalizes runtime config from expo.extra', () => {
         defaultChannelId: ' default ',
         defaultChannelName: ' Default Channel ',
         androidChannelImportance: 'high',
-        enableFirebaseInstallationPushRegistration: true,
-      },
-    },
-  };
+        enableFirebaseInstallationPushRegistration: true
+      }
+    }
+  }
 
   assert.deepEqual(getBubblesNotificationsRuntimeConfig(), {
     defaultChannelId: 'default',
     defaultChannelName: 'Default Channel',
     androidChannelImportance: 'high',
-    enableFirebaseInstallationPushRegistration: true,
-  });
-});
+    enableFirebaseInstallationPushRegistration: true
+  })
+})
 
 test('defaults Firebase Installation push registration to disabled at runtime', () => {
   expoConstants.expoConfig = {
@@ -47,35 +47,35 @@ test('defaults Firebase Installation push registration to disabled at runtime', 
       bubblesNotificationsExpo: {
         defaultChannelId: 'default',
         defaultChannelName: 'Default',
-        androidChannelImportance: 'high',
-      },
-    },
-  };
+        androidChannelImportance: 'high'
+      }
+    }
+  }
 
   assert.equal(
     getBubblesNotificationsRuntimeConfig()
       .enableFirebaseInstallationPushRegistration,
-    false,
-  );
-});
+    false
+  )
+})
 
 test('throws when Expo runtime config is unavailable', () => {
   assert.throws(
     () => getBubblesNotificationsRuntimeConfig(),
-    /Expo runtime config is unavailable\./,
-  );
-});
+    /Expo runtime config is unavailable\./
+  )
+})
 
 test('throws when the package runtime config block is missing', () => {
   expoConstants.expoConfig = {
-    extra: {},
-  };
+    extra: {}
+  }
 
   assert.throws(
     () => getBubblesNotificationsRuntimeConfig(),
-    /Missing "expo\.extra\.bubblesNotificationsExpo"\./,
-  );
-});
+    /Missing "expo\.extra\.bubblesNotificationsExpo"\./
+  )
+})
 
 test('throws when android channel importance is invalid', () => {
   expoConstants.expoConfig = {
@@ -83,13 +83,13 @@ test('throws when android channel importance is invalid', () => {
       bubblesNotificationsExpo: {
         defaultChannelId: 'default',
         defaultChannelName: 'Default',
-        androidChannelImportance: 'urgent',
-      },
-    },
-  };
+        androidChannelImportance: 'urgent'
+      }
+    }
+  }
 
   assert.throws(
     () => getBubblesNotificationsRuntimeConfig(),
-    /"expo\.extra\.bubblesNotificationsExpo\.androidChannelImportance" must be one of: min, low, default, high, max\./,
-  );
-});
+    /"expo\.extra\.bubblesNotificationsExpo\.androidChannelImportance" must be one of: min, low, default, high, max\./
+  )
+})

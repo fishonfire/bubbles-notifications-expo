@@ -2,8 +2,8 @@ import {
   DeviceClient,
   type DeviceClientOptions,
   type RequestOptions,
-  type UpdateDeviceOptions,
-} from '@fishonfire/bubbles-js';
+  type UpdateDeviceOptions
+} from '@fishonfire/bubbles-js'
 
 import {
   buildCreateDevicePayload,
@@ -11,25 +11,25 @@ import {
   type BuildBubblesCreateDevicePayloadOptions,
   type BuildBubblesDevicePayloadOptions,
   type BubblesCreateDevicePayload,
-  type BubblesUpdateDevicePayload,
-} from './device-payload';
+  type BubblesUpdateDevicePayload
+} from './device-payload'
 import {
   getRequiredNonEmptyString,
   isPlainObject,
-  normalizeIdentifier,
-} from '../internal/validation';
-import { failWithBubblesError } from '../internal/errors';
+  normalizeIdentifier
+} from '../internal/validation'
+import { failWithBubblesError } from '../internal/errors'
 
-const APP_KEY_HEADER_NAME = 'X-App-Key';
-const INVALID_APP_KEY_ERROR = 'invalid app key for app';
+const APP_KEY_HEADER_NAME = 'X-App-Key'
+const INVALID_APP_KEY_ERROR = 'invalid app key for app'
 
 export class BubblesAppAuthenticationError extends Error {
-  readonly cause: unknown;
+  readonly cause: unknown
 
-  constructor(cause?: unknown) {
-    super('Bubbles app configuration/authentication failed: invalid app key for app.');
-    this.name = 'BubblesAppAuthenticationError';
-    this.cause = cause;
+  constructor (cause?: unknown) {
+    super('Bubbles app configuration/authentication failed: invalid app key for app.')
+    this.name = 'BubblesAppAuthenticationError'
+    this.cause = cause
   }
 }
 
@@ -90,56 +90,56 @@ export interface UpdateBubblesDeviceAttributesOptions
   requestOptions?: RequestOptions;
 }
 
-function resolveDeviceClient(options: BubblesDeviceClientInput): DeviceClient {
+function resolveDeviceClient (options: BubblesDeviceClientInput): DeviceClient {
   if (options.client) {
-    return options.client;
+    return options.client
   }
 
   return createBubblesDeviceClient({
     ...options.clientOptions,
     appKey: options.appKey,
-    baseUrl: getRequiredNonEmptyString(options.apiBaseUrl, 'apiBaseUrl'),
-  });
+    baseUrl: getRequiredNonEmptyString(options.apiBaseUrl, 'apiBaseUrl')
+  })
 }
 
-export function createBubblesDeviceClient(
-  options: BubblesDeviceClientOptions,
+export function createBubblesDeviceClient (
+  options: BubblesDeviceClientOptions
 ): DeviceClient {
-  const { appKey: rawAppKey, ...clientOptions } = options;
+  const { appKey: rawAppKey, ...clientOptions } = options
   const appKey = rawAppKey
     ? getRequiredNonEmptyString(rawAppKey, 'appKey')
-    : null;
+    : null
 
   return new DeviceClient({
     ...clientOptions,
     baseUrl: getRequiredNonEmptyString(clientOptions.baseUrl, 'apiBaseUrl'),
     defaultHeaders: {
       ...clientOptions.defaultHeaders,
-      ...(appKey ? { [APP_KEY_HEADER_NAME]: appKey } : {}),
-    },
-  });
+      ...(appKey ? { [APP_KEY_HEADER_NAME]: appKey } : {})
+    }
+  })
 }
 
-function withAppKeyHeader<TOptions extends RequestOptions | UpdateDeviceOptions>(
+function withAppKeyHeader<TOptions extends RequestOptions | UpdateDeviceOptions> (
   appKey: string,
-  requestOptions: TOptions | undefined,
+  requestOptions: TOptions | undefined
 ): TOptions {
   return {
     ...requestOptions,
     headers: {
       ...requestOptions?.headers,
-      [APP_KEY_HEADER_NAME]: getRequiredNonEmptyString(appKey, 'appKey'),
-    },
-  } as unknown as TOptions;
+      [APP_KEY_HEADER_NAME]: getRequiredNonEmptyString(appKey, 'appKey')
+    }
+  } as unknown as TOptions
 }
 
-function isInvalidAppKeyResponse(error: unknown): boolean {
+function isInvalidAppKeyResponse (error: unknown): boolean {
   if (!error || typeof error !== 'object') {
-    return false;
+    return false
   }
 
-  const status = Reflect.get(error, 'status');
-  const body = Reflect.get(error, 'body');
+  const status = Reflect.get(error, 'status')
+  const body = Reflect.get(error, 'body')
 
   return (
     status === 401 &&
@@ -147,200 +147,204 @@ function isInvalidAppKeyResponse(error: unknown): boolean {
     typeof body === 'object' &&
     !Array.isArray(body) &&
     Reflect.get(body, 'error') === INVALID_APP_KEY_ERROR
-  );
+  )
 }
 
 export class BubblesDeviceIdentityError extends Error {
-  constructor(readonly code: 'identity_conflict' | 'identity_ambiguous' | 'invalid_identity_response', readonly cause?: unknown) {
-    super(`Bubbles device identity requires reconciliation: ${code}.`);
-    this.name = 'BubblesDeviceIdentityError';
+  constructor (readonly code: 'identity_conflict' | 'identity_ambiguous' | 'invalid_identity_response', readonly cause?: unknown) {
+    super(`Bubbles device identity requires reconciliation: ${code}.`)
+    this.name = 'BubblesDeviceIdentityError'
   }
 }
 
-function validateIdentityResponse(response: unknown, options: SyncBubblesDeviceOptions): string | null {
-  const id = extractDeviceIdFromDeviceResponse(response);
-  if (options.installationId) {
-    if (!id || !isPlainObject(response) || response.installation_id !== options.installationId ||
+function validateIdentityResponse (response: unknown, options: SyncBubblesDeviceOptions): string | null {
+  const id = extractDeviceIdFromDeviceResponse(response)
+
+  if (options.installationId &&
+    (!id || !isPlainObject(response) || response.installation_id !== options.installationId ||
       (options.oneSignalSubscriptionId && response.onesignal_subscription_id !== options.oneSignalSubscriptionId) ||
-      (options.deviceId !== null && id !== String(options.deviceId).trim())) {
-      throw new BubblesDeviceIdentityError('invalid_identity_response');
-    }
+      (options.deviceId !== null && id !== String(options.deviceId).trim()))) {
+    throw new BubblesDeviceIdentityError('invalid_identity_response')
   }
-  return id;
+
+  return id
 }
 
-function throwAppAuthenticationError(error: unknown): never {
+function throwAppAuthenticationError (error: unknown): never {
   if (error && typeof error === 'object' && Reflect.get(error, 'status') === 409) {
-    const body = Reflect.get(error, 'body');
-    const code = body && typeof body === 'object' ? Reflect.get(body, 'error') : null;
-    if (code === 'identity_conflict' || code === 'identity_ambiguous') throw new BubblesDeviceIdentityError(code, error);
+    const body = Reflect.get(error, 'body')
+    const code = body && typeof body === 'object' ? Reflect.get(body, 'error') : null
+
+    if (code === 'identity_conflict' || code === 'identity_ambiguous') throw new BubblesDeviceIdentityError(code, error)
   }
   if (isInvalidAppKeyResponse(error)) {
-    throw new BubblesAppAuthenticationError(error);
+    throw new BubblesAppAuthenticationError(error)
   }
 
-  throw error;
+  throw error
 }
 
-function normalizeDeviceAttributes(
-  value: BubblesDeviceAttributes,
+function normalizeDeviceAttributes (
+  value: BubblesDeviceAttributes
 ): BubblesDeviceAttributes {
-  return normalizeDeviceAttributeObject(value, 'attributes', new WeakSet());
+  return normalizeDeviceAttributeObject(value, 'attributes', new WeakSet())
 }
 
-function normalizeDeviceAttributeValue(
+function normalizeDeviceAttributeValue (
   value: unknown,
   sourceDescription: string,
-  seenValues: WeakSet<object>,
+  seenValues: WeakSet<object>
 ): BubblesDeviceAttributeValue {
   if (value === null) {
-    return null;
+    return null
   }
 
   if (typeof value === 'string' || typeof value === 'boolean') {
-    return value;
+    return value
   }
 
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) {
-      failWithBubblesError(`${sourceDescription} must be a finite number.`);
+      failWithBubblesError(`${sourceDescription} must be a finite number.`)
     }
 
-    return value;
+    return value
   }
 
   if (Array.isArray(value)) {
     if (seenValues.has(value)) {
-      failWithBubblesError(`${sourceDescription} must not contain cycles.`);
+      failWithBubblesError(`${sourceDescription} must not contain cycles.`)
     }
 
-    seenValues.add(value);
+    seenValues.add(value)
     const normalizedValue = value.map((entry, index) =>
       normalizeDeviceAttributeValue(
         entry,
         `${sourceDescription}[${index}]`,
-        seenValues,
-      ),
-    );
-    seenValues.delete(value);
+        seenValues
+      )
+    )
 
-    return normalizedValue;
+    seenValues.delete(value)
+
+    return normalizedValue
   }
 
   if (isPlainObject(value)) {
     return normalizeDeviceAttributeObject(
       value,
       sourceDescription,
-      seenValues,
-    );
+      seenValues
+    )
   }
 
   failWithBubblesError(
-    `${sourceDescription} must be a JSON-compatible value.`,
-  );
+    `${sourceDescription} must be a JSON-compatible value.`
+  )
 }
 
-function normalizeDeviceAttributeObject(
+function normalizeDeviceAttributeObject (
   value: unknown,
   sourceDescription: string,
-  seenValues: WeakSet<object>,
+  seenValues: WeakSet<object>
 ): BubblesDeviceAttributes {
   if (!isPlainObject(value)) {
-    failWithBubblesError('"attributes" must be an object.');
+    failWithBubblesError('"attributes" must be an object.')
   }
 
-  const valuePrototype = Object.getPrototypeOf(value);
+  const valuePrototype = Object.getPrototypeOf(value)
 
   if (valuePrototype !== Object.prototype && valuePrototype !== null) {
     failWithBubblesError(
-      `${sourceDescription} must be a JSON-compatible object.`,
-    );
+      `${sourceDescription} must be a JSON-compatible object.`
+    )
   }
 
   if (Object.getOwnPropertySymbols(value).length > 0) {
     failWithBubblesError(
-      `${sourceDescription} must not contain symbol keys.`,
-    );
+      `${sourceDescription} must not contain symbol keys.`
+    )
   }
 
   if (seenValues.has(value)) {
-    failWithBubblesError(`${sourceDescription} must not contain cycles.`);
+    failWithBubblesError(`${sourceDescription} must not contain cycles.`)
   }
 
-  seenValues.add(value);
-  const normalizedValue: BubblesDeviceAttributes = {};
+  seenValues.add(value)
+  const normalizedValue: BubblesDeviceAttributes = {}
 
   for (const [attributeName, attributeValue] of Object.entries(value)) {
     normalizedValue[attributeName] = normalizeDeviceAttributeValue(
       attributeValue,
       `${sourceDescription}.${attributeName}`,
-      seenValues,
-    );
+      seenValues
+    )
   }
 
-  seenValues.delete(value);
+  seenValues.delete(value)
 
-  return normalizedValue;
+  return normalizedValue
 }
 
-export function extractDeviceIdFromDeviceResponse(
-  value: unknown,
+export function extractDeviceIdFromDeviceResponse (
+  value: unknown
 ): string | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return null;
+    return null
   }
 
-  const id = Reflect.get(value, 'id');
+  const id = Reflect.get(value, 'id')
 
   if (typeof id === 'number') {
-    return Number.isFinite(id) ? String(id) : null;
+    return Number.isFinite(id) ? String(id) : null
   }
 
   if (typeof id === 'string') {
-    const trimmedId = id.trim();
-    return trimmedId.length > 0 ? trimmedId : null;
+    const trimmedId = id.trim()
+
+    return trimmedId.length > 0 ? trimmedId : null
   }
 
-  return null;
+  return null
 }
 
-export async function createBubblesDevice<TResponse = unknown>(
-  options: CreateBubblesDeviceOptions,
+export async function createBubblesDevice<TResponse = unknown> (
+  options: CreateBubblesDeviceOptions
 ): Promise<TResponse> {
-  const client = resolveDeviceClient(options);
-  const payload: BubblesCreateDevicePayload = buildCreateDevicePayload(options);
+  const client = resolveDeviceClient(options)
+  const payload: BubblesCreateDevicePayload = buildCreateDevicePayload(options)
 
   try {
     return await client.createDevice<TResponse, BubblesCreateDevicePayload>(
       payload,
-      withAppKeyHeader(options.appKey, options.requestOptions),
-    );
+      withAppKeyHeader(options.appKey, options.requestOptions)
+    )
   } catch (error) {
-    throwAppAuthenticationError(error);
+    throwAppAuthenticationError(error)
   }
 }
 
-export async function updateBubblesDevice<TResponse = unknown>(
-  options: UpdateBubblesDeviceOptions,
+export async function updateBubblesDevice<TResponse = unknown> (
+  options: UpdateBubblesDeviceOptions
 ): Promise<TResponse> {
-  const client = resolveDeviceClient(options);
-  const payload: BubblesUpdateDevicePayload = buildUpdateDevicePayload(options);
+  const client = resolveDeviceClient(options)
+  const payload: BubblesUpdateDevicePayload = buildUpdateDevicePayload(options)
 
   try {
     return await client.updateDevice<TResponse, BubblesUpdateDevicePayload>(
       normalizeIdentifier(options.deviceId, 'deviceId'),
       payload,
-      withAppKeyHeader(options.appKey, options.requestOptions),
-    );
+      withAppKeyHeader(options.appKey, options.requestOptions)
+    )
   } catch (error) {
-    throwAppAuthenticationError(error);
+    throwAppAuthenticationError(error)
   }
 }
 
-export async function updateBubblesDeviceAttributes<TResponse = unknown>(
-  options: UpdateBubblesDeviceAttributesOptions,
+export async function updateBubblesDeviceAttributes<TResponse = unknown> (
+  options: UpdateBubblesDeviceAttributesOptions
 ): Promise<TResponse> {
-  const client = resolveDeviceClient(options);
+  const client = resolveDeviceClient(options)
 
   try {
     return await client.updateDeviceAttributes<
@@ -349,56 +353,56 @@ export async function updateBubblesDeviceAttributes<TResponse = unknown>(
     >(
       normalizeIdentifier(options.deviceId, 'deviceId'),
       normalizeDeviceAttributes(options.attributes),
-      withAppKeyHeader(options.appKey, options.requestOptions),
-    );
+      withAppKeyHeader(options.appKey, options.requestOptions)
+    )
   } catch (error) {
-    throwAppAuthenticationError(error);
+    throwAppAuthenticationError(error)
   }
 }
 
-export async function syncBubblesDevice<TResponse = unknown>(
-  options: SyncBubblesDeviceOptions,
+export async function syncBubblesDevice<TResponse = unknown> (
+  options: SyncBubblesDeviceOptions
 ): Promise<SyncBubblesDeviceResult<TResponse>> {
-  const client = resolveDeviceClient(options);
+  const client = resolveDeviceClient(options)
 
   if (options.deviceId !== null) {
-    const deviceId = normalizeIdentifier(options.deviceId, 'deviceId');
-    let response: TResponse;
+    const deviceId = normalizeIdentifier(options.deviceId, 'deviceId')
+    let response: TResponse
 
     try {
       response = await client.updateDevice<TResponse, BubblesUpdateDevicePayload>(
         deviceId,
         buildUpdateDevicePayload(options),
-        withAppKeyHeader(options.appKey, options.updateRequestOptions),
-      );
+        withAppKeyHeader(options.appKey, options.updateRequestOptions)
+      )
     } catch (error) {
       if (options.installationId && error && typeof error === 'object' && Reflect.get(error, 'status') === 404) {
-        return syncBubblesDevice<TResponse>({ ...options, client, deviceId: null });
+        return syncBubblesDevice<TResponse>({ ...options, client, deviceId: null })
       }
-      throwAppAuthenticationError(error);
+      throwAppAuthenticationError(error)
     }
 
     return {
       action: 'updated',
       deviceId: validateIdentityResponse(response, options) ?? deviceId,
-      response,
-    };
+      response
+    }
   }
 
-  let response: TResponse;
+  let response: TResponse
 
   try {
     response = await client.createDevice<TResponse, BubblesCreateDevicePayload>(
       buildCreateDevicePayload(options),
-      withAppKeyHeader(options.appKey, options.createRequestOptions),
-    );
+      withAppKeyHeader(options.appKey, options.createRequestOptions)
+    )
   } catch (error) {
-    throwAppAuthenticationError(error);
+    throwAppAuthenticationError(error)
   }
 
   return {
     action: 'created',
     deviceId: validateIdentityResponse(response, options),
-    response,
-  };
+    response
+  }
 }

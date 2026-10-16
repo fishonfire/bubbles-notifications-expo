@@ -2,20 +2,20 @@ import {
   ConfigPlugin,
   WarningAggregator,
   withAppDelegate,
-  withInfoPlist,
-} from 'expo/config-plugins';
-import type { InfoPlist } from '@expo/config-plugins/build/ios/IosConfig.types';
-import { mergeContents, removeContents } from '@expo/config-plugins/build/utils/generateCode';
+  withInfoPlist
+} from 'expo/config-plugins'
+import type { InfoPlist } from '@expo/config-plugins/build/ios/IosConfig.types'
+import { mergeContents, removeContents } from '@expo/config-plugins/build/utils/generateCode'
 
 import type {
-  NormalizedBubblesNotificationsExpoPluginConfig,
-} from './config';
+  NormalizedBubblesNotificationsExpoPluginConfig
+} from './config'
 
 const FIREBASE_MESSAGING_INSTALLATION_ID_ENABLED =
-  'FirebaseMessagingInstallationIdEnabled';
+  'FirebaseMessagingInstallationIdEnabled'
 
 const IOS_REGISTRATION_TAG =
-  '@fishonfire/bubbles-expo-ios-firebase-messaging-registration';
+  '@fishonfire/bubbles-expo-ios-firebase-messaging-registration'
 
 const SWIFT_REGISTRATION_BLOCK = `if FirebaseApp.app() == nil {
       FirebaseApp.configure()
@@ -25,7 +25,7 @@ const SWIFT_REGISTRATION_BLOCK = `if FirebaseApp.app() == nil {
       if let error = error {
         NSLog("[BubblesNotifications] Failed to start Firebase Messaging registration: \\(error.localizedDescription)")
       }
-    }`;
+    }`
 
 const OBJC_REGISTRATION_BLOCK = `if ([FIRApp defaultApp] == nil) {
     [FIRApp configure];
@@ -35,7 +35,7 @@ const OBJC_REGISTRATION_BLOCK = `if ([FIRApp defaultApp] == nil) {
     if (error != nil) {
       NSLog(@"[BubblesNotifications] Failed to start Firebase Messaging registration: %@", error.localizedDescription);
     }
-  }];`;
+  }];`
 
 type MergeAnchor = {
   anchor: RegExp;
@@ -46,80 +46,85 @@ const SWIFT_REGISTRATION_ANCHORS: MergeAnchor[] = [
   {
     anchor:
       /func\s+application\([^)]*didFinishLaunchingWithOptions[^)]*\)\s*->\s*Bool\s*{/,
-    offset: 1,
+    offset: 1
   },
   {
     anchor:
       /^[ \t]*return\s+super\.application\(application,\s*didFinishLaunchingWithOptions:\s*launchOptions\)/m,
-    offset: 0,
+    offset: 0
   },
   {
     anchor: /^[ \t]*factory\.startReactNative\(/m,
-    offset: 0,
+    offset: 0
   },
   {
     anchor: /^[ \t]*return\s+true[ \t]*$/m,
-    offset: 0,
-  },
-];
+    offset: 0
+  }
+]
 
-function addImport(
+function addImport (
   contents: string,
   importLine: string,
   existingImportMatcher: RegExp,
   preferredAnchorMatcher: RegExp,
-  anyImportMatcher: RegExp,
+  anyImportMatcher: RegExp
 ): string {
   if (existingImportMatcher.test(contents)) {
-    return contents;
+    return contents
   }
 
-  const newline = contents.includes('\r\n') ? '\r\n' : '\n';
-  const preferredAnchor = preferredAnchorMatcher.exec(contents);
+  const newline = contents.includes('\r\n') ? '\r\n' : '\n'
+  const preferredAnchor = preferredAnchorMatcher.exec(contents)
+
   if (preferredAnchor?.index !== undefined) {
-    const insertionPoint = preferredAnchor.index + preferredAnchor[0].length;
-    return `${contents.slice(0, insertionPoint)}${newline}${importLine}${contents.slice(insertionPoint)}`;
+    const insertionPoint = preferredAnchor.index + preferredAnchor[0].length
+
+    return `${contents.slice(0, insertionPoint)}${newline}${importLine}${contents.slice(insertionPoint)}`
   }
 
-  const firstImport = anyImportMatcher.exec(contents);
+  const firstImport = anyImportMatcher.exec(contents)
+
   if (firstImport?.index !== undefined) {
-    return `${contents.slice(0, firstImport.index)}${importLine}${newline}${contents.slice(firstImport.index)}`;
+    return `${contents.slice(0, firstImport.index)}${importLine}${newline}${contents.slice(firstImport.index)}`
   }
 
-  return `${importLine}${newline}${contents}`;
+  return `${importLine}${newline}${contents}`
 }
 
-function removeGeneratedRegistration(contents: string): string {
+function removeGeneratedRegistration (contents: string): string {
   return removeContents({
     src: contents,
-    tag: IOS_REGISTRATION_TAG,
-  }).contents;
+    tag: IOS_REGISTRATION_TAG
+  }).contents
 }
 
-export function setFirebaseMessagingInstallationIdEnabled(
+export function setFirebaseMessagingInstallationIdEnabled (
   infoPlist: InfoPlist,
-  enabled: boolean,
+  enabled: boolean
 ): InfoPlist {
   if (enabled) {
     return {
       ...infoPlist,
-      [FIREBASE_MESSAGING_INSTALLATION_ID_ENABLED]: true,
-    };
+      [FIREBASE_MESSAGING_INSTALLATION_ID_ENABLED]: true
+    }
   }
 
-  const nextInfoPlist = { ...infoPlist };
-  delete nextInfoPlist[FIREBASE_MESSAGING_INSTALLATION_ID_ENABLED];
-  return nextInfoPlist;
+  const nextInfoPlist = { ...infoPlist }
+
+  delete nextInfoPlist[FIREBASE_MESSAGING_INSTALLATION_ID_ENABLED]
+
+  return nextInfoPlist
 }
 
-export function updateSwiftAppDelegateRegistration(
+export function updateSwiftAppDelegateRegistration (
   contents: string,
-  enabled: boolean,
+  enabled: boolean
 ): string {
-  const withoutGeneratedRegistration = removeGeneratedRegistration(contents);
+  const withoutGeneratedRegistration = removeGeneratedRegistration(contents)
 
   if (!enabled) {
-    return withoutGeneratedRegistration;
+    return withoutGeneratedRegistration
   }
 
   let nextContents = addImport(
@@ -127,15 +132,16 @@ export function updateSwiftAppDelegateRegistration(
     'import FirebaseCore',
     /^[ \t]*import\s+FirebaseCore[ \t]*$/m,
     /^[ \t]*import\s+Expo[ \t]*$/m,
-    /^[ \t]*import\b[^\r\n]*$/m,
-  );
+    /^[ \t]*import\b[^\r\n]*$/m
+  )
+
   nextContents = addImport(
     nextContents,
     'import FirebaseMessaging',
     /^[ \t]*import\s+FirebaseMessaging[ \t]*$/m,
     /^[ \t]*import\s+FirebaseCore[ \t]*$/m,
-    /^[ \t]*import\b[^\r\n]*$/m,
-  );
+    /^[ \t]*import\b[^\r\n]*$/m
+  )
 
   for (const { anchor, offset } of SWIFT_REGISTRATION_ANCHORS) {
     try {
@@ -145,8 +151,8 @@ export function updateSwiftAppDelegateRegistration(
         newSrc: SWIFT_REGISTRATION_BLOCK,
         anchor,
         offset,
-        comment: '//',
-      }).contents;
+        comment: '//'
+      }).contents
     } catch {
       // Try the next supported AppDelegate shape.
     }
@@ -154,19 +160,20 @@ export function updateSwiftAppDelegateRegistration(
 
   WarningAggregator.addWarningIOS(
     '@fishonfire/bubbles-expo',
-    'Unable to determine correct Firebase Messaging registration insertion point in AppDelegate.swift. Skipping iOS FID registration startup code.',
-  );
-  return nextContents;
+    'Unable to determine correct Firebase Messaging registration insertion point in AppDelegate.swift. Skipping iOS FID registration startup code.'
+  )
+
+  return nextContents
 }
 
-export function updateObjcAppDelegateRegistration(
+export function updateObjcAppDelegateRegistration (
   contents: string,
-  enabled: boolean,
+  enabled: boolean
 ): string {
-  const withoutGeneratedRegistration = removeGeneratedRegistration(contents);
+  const withoutGeneratedRegistration = removeGeneratedRegistration(contents)
 
   if (!enabled) {
-    return withoutGeneratedRegistration;
+    return withoutGeneratedRegistration
   }
 
   let nextContents = addImport(
@@ -174,26 +181,27 @@ export function updateObjcAppDelegateRegistration(
     '#import <FirebaseCore/FirebaseCore.h>',
     /^[ \t]*#import\s+<FirebaseCore\/FirebaseCore\.h>[ \t]*$/m,
     /^[ \t]*#import\s+"AppDelegate\.h"[ \t]*$/m,
-    /^[ \t]*#import\b[^\r\n]*$/m,
-  );
+    /^[ \t]*#import\b[^\r\n]*$/m
+  )
+
   nextContents = addImport(
     nextContents,
     '#import <FirebaseMessaging/FirebaseMessaging.h>',
     /^[ \t]*#import\s+<FirebaseMessaging\/FirebaseMessaging\.h>[ \t]*$/m,
     /^[ \t]*#import\s+<FirebaseCore\/FirebaseCore\.h>[ \t]*$/m,
-    /^[ \t]*#import\b[^\r\n]*$/m,
-  );
+    /^[ \t]*#import\b[^\r\n]*$/m
+  )
 
   try {
-    const method = /-\s*\(BOOL\)\s*application:\s*\(UIApplication\s*\*\s*\)\w+[^;{]*didFinishLaunchingWithOptions:[^;{]*\{/.exec(nextContents);
+    const method = /-\s*\(BOOL\)\s*application:\s*\(UIApplication\s*\*\s*\)\w+[^;{]*didFinishLaunchingWithOptions:[^;{]*\{/.exec(nextContents)
 
     if (!method) {
-      throw new Error('Unable to locate the launch method opening brace.');
+      throw new Error('Unable to locate the launch method opening brace.')
     }
 
     const openingBraceLine = nextContents
       .slice(0, method.index + method[0].length)
-      .split('\n').length;
+      .split('\n').length
 
     return mergeContents({
       tag: IOS_REGISTRATION_TAG,
@@ -202,14 +210,15 @@ export function updateObjcAppDelegateRegistration(
       // mergeContents matches one line at a time; insert after the located brace.
       anchor: /^/,
       offset: openingBraceLine,
-      comment: '//',
-    }).contents;
+      comment: '//'
+    }).contents
   } catch {
     WarningAggregator.addWarningIOS(
       '@fishonfire/bubbles-expo',
-      'Unable to determine correct Firebase Messaging registration insertion point in AppDelegate.m. Skipping iOS FID registration startup code.',
-    );
-    return nextContents;
+      'Unable to determine correct Firebase Messaging registration insertion point in AppDelegate.m. Skipping iOS FID registration startup code.'
+    )
+
+    return nextContents
   }
 }
 
@@ -219,34 +228,37 @@ const withIosFirebaseMessagingRegistration: ConfigPlugin<
   config = withInfoPlist(config, config => {
     config.modResults = setFirebaseMessagingInstallationIdEnabled(
       config.modResults,
-      options.enableFirebaseInstallationPushRegistration,
-    );
-    return config;
-  });
+      options.enableFirebaseInstallationPushRegistration
+    )
+
+    return config
+  })
 
   return withAppDelegate(config, config => {
-    const { language, contents } = config.modResults;
+    const { language, contents } = config.modResults
 
     if (language === 'swift') {
       config.modResults.contents = updateSwiftAppDelegateRegistration(
         contents,
-        options.enableFirebaseInstallationPushRegistration,
-      );
-      return config;
+        options.enableFirebaseInstallationPushRegistration
+      )
+
+      return config
     }
 
     if (language === 'objc' || language === 'objcpp') {
       config.modResults.contents = updateObjcAppDelegateRegistration(
         contents,
-        options.enableFirebaseInstallationPushRegistration,
-      );
-      return config;
+        options.enableFirebaseInstallationPushRegistration
+      )
+
+      return config
     }
 
     throw new Error(
-      `[@fishonfire/bubbles-expo] Cannot configure iOS Firebase Messaging registration for AppDelegate language "${language}".`,
-    );
-  });
-};
+      `[@fishonfire/bubbles-expo] Cannot configure iOS Firebase Messaging registration for AppDelegate language "${language}".`
+    )
+  })
+}
 
-export default withIosFirebaseMessagingRegistration;
+export default withIosFirebaseMessagingRegistration

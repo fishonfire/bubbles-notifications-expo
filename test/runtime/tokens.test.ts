@@ -1,5 +1,9 @@
-import assert from 'node:assert/strict';
-import { beforeEach, test, vi } from 'vitest';
+import assert from 'node:assert/strict'
+import { beforeEach, test, vi } from 'vitest'
+
+const FCM_TOKEN = 'fcm-token-123'
+
+const PADDED_FCM_TOKEN = ` ${FCM_TOKEN} `
 
 type MockPermissions = {
   granted: boolean;
@@ -10,82 +14,86 @@ type MockPermissions = {
 };
 
 const platform = {
-  OS: 'android',
-};
-const permissionCalls: Array<Record<string, unknown> | undefined> = [];
+  OS: 'android'
+}
+const permissionCalls: (Record<string, unknown> | undefined)[] = []
 const permissionState = {
   permissions: {
     granted: true,
-    status: 'granted',
+    status: 'granted'
   } as MockPermissions,
   description: 'granted',
-  granted: true,
-};
-const installationCalls: string[] = [];
+  granted: true
+}
+const installationCalls: string[] = []
 const installationState = {
   installationId: 'fid-123',
-  error: null as unknown,
-};
+  error: null as unknown
+}
 const messagingCalls = {
   getMessaging: 0,
   isDeviceRegisteredForRemoteMessages: 0,
   registerDeviceForRemoteMessages: 0,
-  getToken: 0,
-};
+  getToken: 0
+}
 const messagingState = {
   isRegistered: true,
-  token: ' fcm-token-123 ',
-};
+  token: PADDED_FCM_TOKEN
+}
 const runtimeConfigState = {
-  enableFirebaseInstallationPushRegistration: false,
-};
+  enableFirebaseInstallationPushRegistration: false
+}
 
 vi.doMock('react-native', () => ({
-  Platform: platform,
-}));
+  Platform: platform
+}))
 
 vi.doMock('../../src/runtime/permissions.ts', () => ({
   getNotificationPermissions: async (
-    options?: Record<string, unknown>,
+    options?: Record<string, unknown>
   ) => {
-    permissionCalls.push(options);
-    return permissionState.permissions;
+    permissionCalls.push(options)
+
+    return permissionState.permissions
   },
   describeNotificationPermissionStatus: () => permissionState.description,
-  isNotificationPermissionGranted: () => permissionState.granted,
-}));
+  isNotificationPermissionGranted: () => permissionState.granted
+}))
 
 vi.doMock('../../src/runtime/installations.ts', () => ({
   getFirebaseInstallationId: async (requestedPlatform: string) => {
-    installationCalls.push(requestedPlatform);
+    installationCalls.push(requestedPlatform)
 
     if (installationState.error) {
-      throw installationState.error;
+      throw installationState.error
     }
 
-    return installationState.installationId;
-  },
-}));
+    return installationState.installationId
+  }
+}))
 
 vi.doMock('@react-native-firebase/messaging', () => ({
   getMessaging: () => {
-    messagingCalls.getMessaging += 1;
-    return { app: 'messaging' };
+    messagingCalls.getMessaging += 1
+
+    return { app: 'messaging' }
   },
   isDeviceRegisteredForRemoteMessages: () => {
-    messagingCalls.isDeviceRegisteredForRemoteMessages += 1;
-    return messagingState.isRegistered;
+    messagingCalls.isDeviceRegisteredForRemoteMessages += 1
+
+    return messagingState.isRegistered
   },
   registerDeviceForRemoteMessages: async () => {
-    assert.equal(messagingCalls.getToken, 0);
-    messagingCalls.registerDeviceForRemoteMessages += 1;
-    messagingState.isRegistered = true;
+    assert.equal(messagingCalls.getToken, 0)
+    messagingCalls.registerDeviceForRemoteMessages += 1
+    messagingState.isRegistered = true
   },
   getToken: async () => {
-    messagingCalls.getToken += 1;
-    return messagingState.token;
-  },
-}));
+    messagingCalls.getToken += 1
+
+    return messagingState.token
+  }
+}))
 
 vi.doMock('../../src/config/runtime-config.ts', () => ({
   getBubblesNotificationsRuntimeConfig: () => ({
@@ -93,125 +101,125 @@ vi.doMock('../../src/config/runtime-config.ts', () => ({
     defaultChannelName: 'Default',
     androidChannelImportance: 'max',
     enableFirebaseInstallationPushRegistration:
-      runtimeConfigState.enableFirebaseInstallationPushRegistration,
-  }),
-}));
+      runtimeConfigState.enableFirebaseInstallationPushRegistration
+  })
+}))
 
 const {
   getDeviceRegistrationState,
   getDeviceToken,
-  getFCMToken,
-} = await import('../../src/runtime/tokens.ts');
+  getFCMToken
+} = await import('../../src/runtime/tokens.ts')
 
 beforeEach(() => {
-  platform.OS = 'android';
-  permissionCalls.length = 0;
+  platform.OS = 'android'
+  permissionCalls.length = 0
   permissionState.permissions = {
     granted: true,
-    status: 'granted',
-  };
-  permissionState.description = 'granted';
-  permissionState.granted = true;
-  installationCalls.length = 0;
-  installationState.installationId = 'fid-123';
-  installationState.error = null;
-  messagingCalls.getMessaging = 0;
-  messagingCalls.isDeviceRegisteredForRemoteMessages = 0;
-  messagingCalls.registerDeviceForRemoteMessages = 0;
-  messagingCalls.getToken = 0;
-  messagingState.isRegistered = true;
-  messagingState.token = ' fcm-token-123 ';
-  runtimeConfigState.enableFirebaseInstallationPushRegistration = false;
-});
+    status: 'granted'
+  }
+  permissionState.description = 'granted'
+  permissionState.granted = true
+  installationCalls.length = 0
+  installationState.installationId = 'fid-123'
+  installationState.error = null
+  messagingCalls.getMessaging = 0
+  messagingCalls.isDeviceRegisteredForRemoteMessages = 0
+  messagingCalls.registerDeviceForRemoteMessages = 0
+  messagingCalls.getToken = 0
+  messagingState.isRegistered = true
+  messagingState.token = PADDED_FCM_TOKEN
+  runtimeConfigState.enableFirebaseInstallationPushRegistration = false
+})
 
 test('getDeviceRegistrationState returns a disabled snapshot when permission is denied', async () => {
   permissionState.permissions = {
     granted: false,
-    status: 'denied',
-  };
-  permissionState.description = 'denied';
-  permissionState.granted = false;
+    status: 'denied'
+  }
+  permissionState.description = 'denied'
+  permissionState.granted = false
 
   const result = await getDeviceRegistrationState({
-    requestPermissions: false,
-  });
+    requestPermissions: false
+  })
 
-  assert.deepEqual(permissionCalls, [{ requestPermissions: false }]);
+  assert.deepEqual(permissionCalls, [{ requestPermissions: false }])
   assert.deepEqual(result, {
     platform: 'android',
     tokenType: null,
     token: null,
     fid: null,
     permissionStatus: 'denied',
-    notificationsEnabled: false,
-  });
-  assert.deepEqual(installationCalls, []);
-  assert.equal(messagingCalls.getToken, 0);
-});
+    notificationsEnabled: false
+  })
+  assert.deepEqual(installationCalls, [])
+  assert.equal(messagingCalls.getToken, 0)
+})
 
 test('getDeviceRegistrationState returns FCM token with Firebase installation id by default', async () => {
-  const result = await getDeviceRegistrationState();
+  const result = await getDeviceRegistrationState()
 
-  assert.deepEqual(installationCalls, ['android']);
-  assert.equal(messagingCalls.getMessaging, 1);
-  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 0);
-  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 0);
-  assert.equal(messagingCalls.getToken, 1);
+  assert.deepEqual(installationCalls, ['android'])
+  assert.equal(messagingCalls.getMessaging, 1)
+  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 0)
+  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 0)
+  assert.equal(messagingCalls.getToken, 1)
   assert.deepEqual(result, {
     platform: 'android',
     tokenType: 'fcm',
-    token: 'fcm-token-123',
+    token: FCM_TOKEN,
     fid: 'fid-123',
     permissionStatus: 'granted',
-    notificationsEnabled: true,
-  });
-  assert.equal(await getFCMToken(), 'fcm-token-123');
-});
+    notificationsEnabled: true
+  })
+  assert.equal(await getFCMToken(), FCM_TOKEN)
+})
 
 test('getDeviceRegistrationState registers remote messages before reading FCM token', async () => {
-  platform.OS = 'ios';
-  messagingState.isRegistered = false;
+  platform.OS = 'ios'
+  messagingState.isRegistered = false
 
-  const result = await getDeviceRegistrationState();
+  const result = await getDeviceRegistrationState()
 
-  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 1);
-  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 1);
-  assert.equal(messagingCalls.getToken, 1);
-  assert.equal(result.token, 'fcm-token-123');
-});
+  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 1)
+  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 1)
+  assert.equal(messagingCalls.getToken, 1)
+  assert.equal(result.token, FCM_TOKEN)
+})
 
 test('getDeviceRegistrationState does not manually register an already registered iOS device', async () => {
-  platform.OS = 'ios';
+  platform.OS = 'ios'
 
-  const result = await getDeviceRegistrationState();
+  const result = await getDeviceRegistrationState()
 
-  assert.deepEqual(installationCalls, ['ios']);
-  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 1);
-  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 0);
-  assert.equal(messagingCalls.getToken, 1);
+  assert.deepEqual(installationCalls, ['ios'])
+  assert.equal(messagingCalls.isDeviceRegisteredForRemoteMessages, 1)
+  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 0)
+  assert.equal(messagingCalls.getToken, 1)
   assert.deepEqual(result, {
     platform: 'ios',
     tokenType: 'fcm',
-    token: 'fcm-token-123',
+    token: FCM_TOKEN,
     fid: 'fid-123',
     permissionStatus: 'granted',
-    notificationsEnabled: true,
-  });
-});
+    notificationsEnabled: true
+  })
+})
 
 test('getFCMToken registers an unregistered iOS device before reading the token', async () => {
-  platform.OS = 'ios';
-  messagingState.isRegistered = false;
+  platform.OS = 'ios'
+  messagingState.isRegistered = false
 
-  assert.equal(await getFCMToken(), 'fcm-token-123');
-  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 1);
-  assert.equal(messagingCalls.getToken, 1);
-});
+  assert.equal(await getFCMToken(), FCM_TOKEN)
+  assert.equal(messagingCalls.registerDeviceForRemoteMessages, 1)
+  assert.equal(messagingCalls.getToken, 1)
+})
 
 test('getDeviceRegistrationState returns FID as token when Firebase installation push registration is enabled', async () => {
-  runtimeConfigState.enableFirebaseInstallationPushRegistration = true;
+  runtimeConfigState.enableFirebaseInstallationPushRegistration = true
 
-  const result = await getDeviceRegistrationState();
+  const result = await getDeviceRegistrationState()
 
   assert.deepEqual(result, {
     platform: 'android',
@@ -219,61 +227,61 @@ test('getDeviceRegistrationState returns FID as token when Firebase installation
     token: 'fid-123',
     fid: 'fid-123',
     permissionStatus: 'granted',
-    notificationsEnabled: true,
-  });
-  assert.equal(messagingCalls.getToken, 0);
-});
+    notificationsEnabled: true
+  })
+  assert.equal(messagingCalls.getToken, 0)
+})
 
 test('getFCMToken always returns the Firebase Messaging token when FID registration is enabled', async () => {
-  runtimeConfigState.enableFirebaseInstallationPushRegistration = true;
+  runtimeConfigState.enableFirebaseInstallationPushRegistration = true
 
-  assert.equal(await getFCMToken(), 'fcm-token-123');
-  assert.deepEqual(installationCalls, []);
-  assert.equal(messagingCalls.getToken, 1);
-});
+  assert.equal(await getFCMToken(), FCM_TOKEN)
+  assert.deepEqual(installationCalls, [])
+  assert.equal(messagingCalls.getToken, 1)
+})
 
 test('getDeviceToken rejects when notification permission is not granted', async () => {
-  permissionState.granted = false;
+  permissionState.granted = false
   permissionState.permissions = {
     granted: false,
-    status: 'denied',
-  };
-  permissionState.description = 'denied';
+    status: 'denied'
+  }
+  permissionState.description = 'denied'
 
   await assert.rejects(
     () => getDeviceToken(),
-    /Push notification permission was not granted\./,
-  );
-});
+    /Push notification permission was not granted\./
+  )
+})
 
 test('getDeviceRegistrationState rejects unsupported platforms', async () => {
-  platform.OS = 'web';
+  platform.OS = 'web'
 
   await assert.rejects(
     () => getDeviceRegistrationState(),
-    /Unsupported platform: web\. This package only supports iOS and Android\./,
-  );
-});
+    /Unsupported platform: web\. This package only supports iOS and Android\./
+  )
+})
 
 test('Firebase installation id failures propagate from the installation helper', async () => {
-  platform.OS = 'ios';
+  platform.OS = 'ios'
   installationState.error = new Error(
-    'Failed to get an ios Firebase installation id.',
-  );
+    'Failed to get an ios Firebase installation id.'
+  )
 
   await assert.rejects(
     () => getDeviceRegistrationState(),
-    /Failed to get an ios Firebase installation id\./,
-  );
-});
+    /Failed to get an ios Firebase installation id\./
+  )
+})
 
 test('empty Firebase installation ids are rejected with a token-source-specific error', async () => {
   installationState.error = new Error(
-    'android Firebase installation id from Firebase Installations must not be empty.',
-  );
+    'android Firebase installation id from Firebase Installations must not be empty.'
+  )
 
   await assert.rejects(
     () => getDeviceRegistrationState(),
-    /android Firebase installation id from Firebase Installations must not be empty\./,
-  );
-});
+    /android Firebase installation id from Firebase Installations must not be empty\./
+  )
+})

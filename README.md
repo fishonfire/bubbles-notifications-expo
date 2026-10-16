@@ -219,6 +219,14 @@ Existing integrations that still read the package's stored device configuration 
 ## Example application
 An example application can be found at: https://github.com/fishonfire/bubbles-notifications-expo-example
 
+## Development
+
+Run `npm run lint` to check authored JavaScript and TypeScript in the runtime, config plugin, tests, and package configuration. Run `npm run lint:fix` to apply automatic fixes. Both commands require zero warnings; generated `dist/` and `plugin/build/` files are excluded.
+
+Linting follows [eslint-config-fishonfire](https://github.com/fishonfire/eslint-config-fishonfire), including React, Hooks, and SonarJS rules, on top of Expo's defaults. The config preserves its TypeScript ESLint 5 recommended rules using TypeScript ESLint 8 equivalents where rules were retired, keeping compatibility with Expo 57.
+
+Run `npm run typecheck`, `npm test`, and `npm run build` for the remaining development checks.
+
 ## Contributors
 - Simon de la Court (https://github.com/simondelacourt)
 - Jan Deen (https://github.com/Jan-F15H)

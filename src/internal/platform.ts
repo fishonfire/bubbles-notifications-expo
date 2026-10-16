@@ -1,28 +1,29 @@
-import { failWithBubblesError } from './errors';
+import { failWithBubblesError } from './errors'
 
 export type SupportedPlatform = 'android' | 'ios';
 
-function isSupportedPlatform(
-  value: string,
+function isSupportedPlatform (
+  value: string
 ): value is SupportedPlatform {
-  return value === 'android' || value === 'ios';
+  return value === 'android' || value === 'ios'
 }
 
-export function assertSupportedPlatform(
-  value: string,
+export function assertSupportedPlatform (
+  value: string
 ): asserts value is SupportedPlatform {
   if (isSupportedPlatform(value)) {
-    return;
+    return
   }
 
   failWithBubblesError(
-    `Unsupported platform: ${value}. This package only supports iOS and Android.`,
-  );
+    `Unsupported platform: ${value}. This package only supports iOS and Android.`
+  )
 }
 
-export function getSupportedPlatform(
-  value: string,
+export function getSupportedPlatform (
+  value: string
 ): SupportedPlatform {
-  assertSupportedPlatform(value);
-  return value;
+  assertSupportedPlatform(value)
+
+  return value
 }

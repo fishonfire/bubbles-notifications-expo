@@ -1,5 +1,5 @@
-import { registerBubblesBackgroundHandlers } from './background/setup';
+import { registerBubblesBackgroundHandlers } from './background/setup'
 
-registerBubblesBackgroundHandlers();
+registerBubblesBackgroundHandlers()
 
-export {};
+export {}

@@ -1,18 +1,18 @@
-import { resolveRegistrationIdentity, type OneSignalMigration } from './migration';
+import { resolveRegistrationIdentity, type OneSignalMigration } from './migration'
 import {
   syncBubblesDevice,
-  updateBubblesDeviceAttributes,
-} from '../api/device-client';
+  updateBubblesDeviceAttributes
+} from '../api/device-client'
 import {
-  acknowledgeRegistrationScope,
-} from '../storage/device-state';
-import { flushStoredBubblesDeliveryStatuses } from '../notifications/delivery-status';
+  acknowledgeRegistrationScope
+} from '../storage/device-state'
+import { flushStoredBubblesDeliveryStatuses } from '../notifications/delivery-status'
 
 import {
   type DeviceRegistrationState,
-  type NativeTokenType,
-} from './transport';
-import { collectBubblesDeviceAttributes } from './device-attributes';
+  type NativeTokenType
+} from './transport'
+import { collectBubblesDeviceAttributes } from './device-attributes'
 
 interface BaseSyncDeviceOptions {
   oneSignalMigration?: OneSignalMigration;
@@ -54,109 +54,111 @@ export type BubblesDeviceAttributeSyncResult =
   | { status: 'failed'; error: Error };
 
 export class BubblesNotificationsSyncError extends Error {
-  readonly snapshot: BubblesNotificationsRuntimeSnapshot;
-  readonly cause: unknown;
+  readonly snapshot: BubblesNotificationsRuntimeSnapshot
 
-  constructor(
+  readonly cause: unknown
+
+  constructor (
     message: string,
     snapshot: BubblesNotificationsRuntimeSnapshot,
-    cause?: unknown,
+    cause?: unknown
   ) {
-    super(message);
-    this.name = 'BubblesNotificationsSyncError';
-    this.snapshot = snapshot;
-    this.cause = cause;
+    super(message)
+    this.name = 'BubblesNotificationsSyncError'
+    this.snapshot = snapshot
+    this.cause = cause
   }
 }
 
-function fail(message: string): never {
-  throw new Error(`[@fishonfire/bubbles-expo] ${message}`);
+function fail (message: string): never {
+  throw new Error(`[@fishonfire/bubbles-expo] ${message}`)
 }
 
-function toError(error: unknown): Error {
+function toError (error: unknown): Error {
   if (error instanceof Error) {
-    return error;
+    return error
   }
 
-  return new Error(String(error));
+  return new Error(String(error))
 }
 
-function getRequiredNonEmptyString(value: unknown, fieldName: string): string {
+function getRequiredNonEmptyString (value: unknown, fieldName: string): string {
   if (typeof value !== 'string') {
-    fail(`"${fieldName}" must be a string.`);
+    fail(`"${fieldName}" must be a string.`)
   }
 
-  const trimmedValue = value.trim();
+  const trimmedValue = value.trim()
 
   if (!trimmedValue) {
-    fail(`"${fieldName}" must not be empty.`);
+    fail(`"${fieldName}" must not be empty.`)
   }
 
-  return trimmedValue;
+  return trimmedValue
 }
 
-function buildRuntimeSnapshot(
+function buildRuntimeSnapshot (
   deviceId: string | null,
-  registrationState: DeviceRegistrationState,
+  registrationState: DeviceRegistrationState
 ): BubblesNotificationsRuntimeSnapshot {
   return {
     deviceId,
     pushToken: registrationState.token,
     tokenType: registrationState.tokenType,
     permissionStatus: registrationState.permissionStatus,
-    notificationsEnabled: registrationState.notificationsEnabled,
-  };
+    notificationsEnabled: registrationState.notificationsEnabled
+  }
 }
 
-async function syncBubblesDeviceAttributes(
+async function syncBubblesDeviceAttributes (
   apiBaseUrl: string,
   appKey: string,
-  deviceId: string,
+  deviceId: string
 ): Promise<BubblesDeviceAttributeSyncResult> {
   try {
-    const attributes = await collectBubblesDeviceAttributes();
+    const attributes = await collectBubblesDeviceAttributes()
 
     if (Object.keys(attributes).length === 0) {
-      return { status: 'skipped', error: null };
+      return { status: 'skipped', error: null }
     }
 
     await updateBubblesDeviceAttributes({
       apiBaseUrl,
       appKey,
       deviceId,
-      attributes,
-    });
+      attributes
+    })
 
-    return { status: 'succeeded', error: null };
+    return { status: 'succeeded', error: null }
   } catch (error) {
-    const normalizedError = toError(error);
+    const normalizedError = toError(error)
 
     console.error(
       '[@fishonfire/bubbles-expo] Failed to synchronize built-in device attributes after device registration.',
-      normalizedError,
-    );
+      normalizedError
+    )
 
-    return { status: 'failed', error: normalizedError };
+    return { status: 'failed', error: normalizedError }
   }
 }
 
-export async function syncDeviceRegistrationState(
-  options: SyncDeviceRegistrationStateOptions,
+export async function syncDeviceRegistrationState (
+  options: SyncDeviceRegistrationStateOptions
 ): Promise<SyncBubblesNotificationsDeviceResult> {
-  const apiBaseUrl = getRequiredNonEmptyString(options.apiBaseUrl, 'apiBaseUrl');
-  const appKey = getRequiredNonEmptyString(options.appKey, 'appKey');
+  const apiBaseUrl = getRequiredNonEmptyString(options.apiBaseUrl, 'apiBaseUrl')
+  const appKey = getRequiredNonEmptyString(options.appKey, 'appKey')
 
   const snapshot = buildRuntimeSnapshot(
     options.deviceId,
-    options.registrationState,
-  );
+    options.registrationState
+  )
 
   try {
-    const identity = options.registrationIdentity ?? await resolveRegistrationIdentity({ ...options, apiBaseUrl, appKey });
-    if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.');
+    const identity = options.registrationIdentity ?? await resolveRegistrationIdentity({ ...options, apiBaseUrl, appKey })
+
+    if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
     const firebaseInstallationId = options.registrationState.notificationsEnabled
       ? options.registrationState.fid
-      : null;
+      : null
     const syncResult = await syncBubblesDevice({
       apiBaseUrl,
       appId: options.appId,
@@ -170,41 +172,42 @@ export async function syncDeviceRegistrationState(
       platform: options.registrationState.platform,
       pushToken: options.registrationState.token,
       fid: firebaseInstallationId,
-      notificationsEnabled: options.registrationState.notificationsEnabled,
-    });
-    const nextDeviceId = syncResult.deviceId;
-    if (!nextDeviceId) throw new Error('Backend registration did not return a canonical device ID.');
-    if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.');
+      notificationsEnabled: options.registrationState.notificationsEnabled
+    })
+    const nextDeviceId = syncResult.deviceId
+
+    if (!nextDeviceId) throw new Error('Backend registration did not return a canonical device ID.')
+    if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
     const storedDeviceState = await acknowledgeRegistrationScope(identity.registrationScope, nextDeviceId,
-      identity.installationId, identity.oneSignalSubscriptionId, identity.oneSignalAppId, options.isCurrent);
+      identity.installationId, identity.oneSignalSubscriptionId, identity.oneSignalAppId, options.isCurrent)
 
     let attributeSync: BubblesDeviceAttributeSyncResult = {
       status: 'skipped',
-      error: null,
-    };
+      error: null
+    }
 
     if (nextDeviceId) {
-      const syncAttributes = () => syncBubblesDeviceAttributes(apiBaseUrl, appKey, nextDeviceId);
+      const syncAttributes = () => syncBubblesDeviceAttributes(apiBaseUrl, appKey, nextDeviceId)
       const flushDeliveryStatuses = async () => {
         try {
-          await flushStoredBubblesDeliveryStatuses(storedDeviceState);
+          await flushStoredBubblesDeliveryStatuses(storedDeviceState)
         } catch (error) {
           console.error(
             '[@fishonfire/bubbles-expo] Failed to flush stored delivery statuses after device synchronization.',
-            error,
-          );
+            error
+          )
         }
-      };
+      }
 
       if (options.deferPostRegistrationWork) {
         // Neither task controls enrollment success. Each handles its own errors,
         // and a slow delivery-status request must not delay attribute syncing.
-        attributeSync = { status: 'pending', error: null };
-        void flushDeliveryStatuses();
-        void syncAttributes();
+        attributeSync = { status: 'pending', error: null }
+        void flushDeliveryStatuses()
+        void syncAttributes()
       } else {
-        await flushDeliveryStatuses();
-        attributeSync = await syncAttributes();
+        await flushDeliveryStatuses()
+        attributeSync = await syncAttributes()
       }
     }
 
@@ -212,15 +215,15 @@ export async function syncDeviceRegistrationState(
       ...snapshot,
       action: syncResult.action,
       deviceId: nextDeviceId,
-      attributeSync,
-    };
+      attributeSync
+    }
   } catch (error) {
-    const normalizedError = toError(error);
+    const normalizedError = toError(error)
 
     throw new BubblesNotificationsSyncError(
       normalizedError.message,
       snapshot,
-      error,
-    );
+      error
+    )
   }
 }

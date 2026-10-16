@@ -1,19 +1,19 @@
 import {
   BUBBLES_DELIVERY_STATUSES,
   postBubblesDeliveryStatus,
-  type BubblesDeliveryStatus,
-} from '../api/delivery-status';
+  type BubblesDeliveryStatus
+} from '../api/delivery-status'
 import {
   readStoredDeviceStateAsync,
-  type StoredDeviceState,
-} from '../storage/device-state';
+  type StoredDeviceState
+} from '../storage/device-state'
 import {
   createStoredDeliveryStatusEvent,
   readStoredDeliveryStatusLedgerAsync,
   runDeliveryStatusLedgerServiceOperation,
   storeDeliveryStatusLedgerAsync,
-  type StoredDeliveryStatusEvent,
-} from '../storage/delivery-status-ledger';
+  type StoredDeliveryStatusEvent
+} from '../storage/delivery-status-ledger'
 
 export interface PostStoredBubblesDeliveryStatusOptions {
   source: string;
@@ -29,124 +29,133 @@ export interface ObserveStoredBubblesDeliveryStatusOptions {
   storedDeviceState?: StoredDeviceState;
 }
 
-function warnMissingApiBaseUrl(source: string) {
+function warnMissingApiBaseUrl (source: string) {
   console.warn(
-    `[@fishonfire/bubbles-expo] Skipping ${source} delivery-status update because "apiBaseUrl" has not been persisted yet.`,
-  );
+    `[@fishonfire/bubbles-expo] Skipping ${source} delivery-status update because "apiBaseUrl" has not been persisted yet.`
+  )
 }
 
-function warnMissingAppKey(source: string) {
+function warnMissingAppKey (source: string) {
   console.warn(
-    `[@fishonfire/bubbles-expo] Skipping ${source} delivery-status update because "appKey" has not been persisted yet.`,
-  );
+    `[@fishonfire/bubbles-expo] Skipping ${source} delivery-status update because "appKey" has not been persisted yet.`
+  )
 }
 
-export async function postStoredBubblesDeliveryStatus(
-  options: PostStoredBubblesDeliveryStatusOptions,
+function bindEventToRegistrationScope (
+  event: StoredDeliveryStatusEvent,
+  storedDeviceState: StoredDeviceState
+): void {
+  if (storedDeviceState.registrationScope) {
+    event.registrationScope = storedDeviceState.registrationScope
+    if (storedDeviceState.deviceId) event.deviceId = storedDeviceState.deviceId
+  }
+}
+
+export async function postStoredBubblesDeliveryStatus (
+  options: PostStoredBubblesDeliveryStatusOptions
 ): Promise<StoredDeviceState> {
   const storedDeviceState =
-    options.storedDeviceState ?? (await readStoredDeviceStateAsync());
-  const { deviceId, apiBaseUrl, appKey } = storedDeviceState;
+    options.storedDeviceState ?? (await readStoredDeviceStateAsync())
+  const { deviceId, apiBaseUrl, appKey } = storedDeviceState
 
   if (!options.notificationId) {
-    return storedDeviceState;
+    return storedDeviceState
   }
 
   const event = createStoredDeliveryStatusEvent({
     notificationId: options.notificationId,
     status: options.status,
-    error: options.error,
-  });
+    error: options.error
+  })
 
-  if (storedDeviceState.registrationScope) {
-    event.registrationScope = storedDeviceState.registrationScope;
-    if (deviceId) event.deviceId = deviceId;
-  }
+  bindEventToRegistrationScope(event, storedDeviceState)
 
   await runDeliveryStatusLedgerServiceOperation(async () => {
-    const ledger = await readStoredDeliveryStatusLedgerAsync();
+    const ledger = await readStoredDeliveryStatusLedgerAsync()
 
     if (
       !ledger.postedEventKeys.includes(event.key) &&
       !ledger.pendingEvents.some(
-        (pendingEvent) => pendingEvent.key === event.key,
+        (pendingEvent) => pendingEvent.key === event.key
       )
     ) {
       await storeDeliveryStatusLedgerAsync({
         ...ledger,
-        pendingEvents: [...ledger.pendingEvents, event],
-      });
+        pendingEvents: [...ledger.pendingEvents, event]
+      })
     }
 
     if (!deviceId || (storedDeviceState.registrationScope && !storedDeviceState.identityAcknowledged)) {
-      return;
+      return
     }
 
     if (!apiBaseUrl) {
-      warnMissingApiBaseUrl(options.source);
-      return;
+      warnMissingApiBaseUrl(options.source)
+
+      return
     }
 
     if (!appKey) {
-      warnMissingAppKey(options.source);
-      return;
+      warnMissingAppKey(options.source)
+
+      return
     }
 
     await flushStoredBubblesDeliveryStatusesInOperation({
       apiBaseUrl,
       appKey,
       deviceId,
-      registrationScope: storedDeviceState.registrationScope,
-    });
-  });
+      registrationScope: storedDeviceState.registrationScope
+    })
+  })
 
-  return storedDeviceState;
+  return storedDeviceState
 }
 
-export function observeStoredBubblesNotificationReceived(
-  options: ObserveStoredBubblesDeliveryStatusOptions,
+export function observeStoredBubblesNotificationReceived (
+  options: ObserveStoredBubblesDeliveryStatusOptions
 ): Promise<StoredDeviceState> {
   return postStoredBubblesDeliveryStatus({
     ...options,
-    status: BUBBLES_DELIVERY_STATUSES.notificationReceived,
-  });
+    status: BUBBLES_DELIVERY_STATUSES.notificationReceived
+  })
 }
 
-export function observeStoredBubblesLocalDisplayRequested(
-  options: ObserveStoredBubblesDeliveryStatusOptions,
+export function observeStoredBubblesLocalDisplayRequested (
+  options: ObserveStoredBubblesDeliveryStatusOptions
 ): Promise<StoredDeviceState> {
   return postStoredBubblesDeliveryStatus({
     ...options,
-    status: BUBBLES_DELIVERY_STATUSES.notificationShown,
-  });
+    status: BUBBLES_DELIVERY_STATUSES.notificationShown
+  })
 }
 
-export function observeStoredBubblesNotificationClicked(
-  options: ObserveStoredBubblesDeliveryStatusOptions,
+export function observeStoredBubblesNotificationClicked (
+  options: ObserveStoredBubblesDeliveryStatusOptions
 ): Promise<StoredDeviceState> {
   return postStoredBubblesDeliveryStatus({
     ...options,
-    status: BUBBLES_DELIVERY_STATUSES.notificationClicked,
-  });
+    status: BUBBLES_DELIVERY_STATUSES.notificationClicked
+  })
 }
 
-export function observeStoredBubblesNotificationsDisabled(
-  options: ObserveStoredBubblesDeliveryStatusOptions,
+export function observeStoredBubblesNotificationsDisabled (
+  options: ObserveStoredBubblesDeliveryStatusOptions
 ): Promise<StoredDeviceState> {
   return postStoredBubblesDeliveryStatus({
     ...options,
-    status: BUBBLES_DELIVERY_STATUSES.notificationsDisabled,
-  });
+    status: BUBBLES_DELIVERY_STATUSES.notificationsDisabled
+  })
 }
 
-export async function flushStoredBubblesDeliveryStatuses(
-  storedDeviceState?: StoredDeviceState,
+export async function flushStoredBubblesDeliveryStatuses (
+  storedDeviceState?: StoredDeviceState
 ): Promise<StoredDeviceState> {
-  storedDeviceState ??= await readStoredDeviceStateAsync();
-  const { deviceId, apiBaseUrl, appKey } = storedDeviceState;
+  storedDeviceState ??= await readStoredDeviceStateAsync()
+  const { deviceId, apiBaseUrl, appKey } = storedDeviceState
 
   if (!deviceId || !apiBaseUrl || !appKey || (storedDeviceState.registrationScope && !storedDeviceState.identityAcknowledged)) {
-    return storedDeviceState;
+    return storedDeviceState
   }
 
   await runDeliveryStatusLedgerServiceOperation(() =>
@@ -154,46 +163,46 @@ export async function flushStoredBubblesDeliveryStatuses(
       deviceId,
       apiBaseUrl,
       appKey,
-      registrationScope: storedDeviceState.registrationScope,
-    }),
-  );
+      registrationScope: storedDeviceState.registrationScope
+    })
+  )
 
-  return storedDeviceState;
+  return storedDeviceState
 }
 
-async function flushStoredBubblesDeliveryStatusesInOperation(
+async function flushStoredBubblesDeliveryStatusesInOperation (
   storedDeviceState: {
     deviceId: string;
     apiBaseUrl: string;
     appKey: string;
     registrationScope?: string;
-  },
+  }
 ): Promise<void> {
-  const { deviceId, apiBaseUrl, appKey } = storedDeviceState;
-  let ledger = await readStoredDeliveryStatusLedgerAsync();
+  const { deviceId, apiBaseUrl, appKey } = storedDeviceState
+  let ledger = await readStoredDeliveryStatusLedgerAsync()
 
   for (const event of ledger.pendingEvents) {
     // Historical and unbound legacy events cannot be attributed to a newly reconciled device.
-    if (storedDeviceState.registrationScope && (event.registrationScope !== storedDeviceState.registrationScope || event.deviceId !== deviceId)) continue;
-    await postStoredDeliveryStatusEvent(apiBaseUrl, appKey, deviceId, event);
+    if (storedDeviceState.registrationScope && (event.registrationScope !== storedDeviceState.registrationScope || event.deviceId !== deviceId)) continue
+    await postStoredDeliveryStatusEvent(apiBaseUrl, appKey, deviceId, event)
     const postedEventKeys = ledger.postedEventKeys.includes(event.key)
       ? ledger.postedEventKeys
-      : [...ledger.postedEventKeys, event.key];
+      : [...ledger.postedEventKeys, event.key]
 
     ledger = await storeDeliveryStatusLedgerAsync({
       pendingEvents: ledger.pendingEvents.filter(
-        (pendingEvent) => pendingEvent.key !== event.key,
+        (pendingEvent) => pendingEvent.key !== event.key
       ),
-      postedEventKeys,
-    });
+      postedEventKeys
+    })
   }
 }
 
-async function postStoredDeliveryStatusEvent(
+async function postStoredDeliveryStatusEvent (
   apiBaseUrl: string,
   appKey: string,
   deviceId: string,
-  event: StoredDeliveryStatusEvent,
+  event: StoredDeliveryStatusEvent
 ) {
   await postBubblesDeliveryStatus({
     apiBaseUrl,
@@ -201,6 +210,6 @@ async function postStoredDeliveryStatusEvent(
     deviceId,
     notificationId: event.notificationId,
     status: event.status,
-    error: event.error,
-  });
+    error: event.error
+  })
 }

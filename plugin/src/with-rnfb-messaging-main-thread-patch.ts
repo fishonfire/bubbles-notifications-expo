@@ -1,10 +1,10 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
+import fs from 'node:fs/promises'
+import path from 'node:path'
 
 import {
   ConfigPlugin,
-  withDangerousMod,
-} from 'expo/config-plugins';
+  withDangerousMod
+} from 'expo/config-plugins'
 
 const RNFB_MESSAGING_MODULE_RELATIVE_PATH = path.join(
   'node_modules',
@@ -12,22 +12,22 @@ const RNFB_MESSAGING_MODULE_RELATIVE_PATH = path.join(
   'messaging',
   'ios',
   'RNFBMessaging',
-  'RNFBMessagingModule.mm',
-);
+  'RNFBMessagingModule.mm'
+)
 
 const RNFB_MESSAGING_PACKAGE_JSON_RELATIVE_PATH = path.join(
   'node_modules',
   '@react-native-firebase',
   'messaging',
-  'package.json',
-);
+  'package.json'
+)
 
-const SUPPORTED_RNFB_MESSAGING_VERSION = '>=26.3.3 <27.0.0';
-const IMPLEMENTATION_ANCHOR = '@implementation RNFBMessagingModule';
+const SUPPORTED_RNFB_MESSAGING_VERSION = '>=26.3.3 <27.0.0'
+const IMPLEMENTATION_ANCHOR = '@implementation RNFBMessagingModule'
 const REGISTERED_HELPER_NAME =
-  'RNFBMessagingIsRegisteredForRemoteNotifications';
+  'RNFBMessagingIsRegisteredForRemoteNotifications'
 const UNREGISTER_HELPER_NAME =
-  'RNFBMessagingUnregisterForRemoteNotifications';
+  'RNFBMessagingUnregisterForRemoteNotifications'
 
 const REGISTERED_HELPER = `static BOOL ${REGISTERED_HELPER_NAME}() {
 #if TARGET_IPHONE_SIMULATOR
@@ -47,7 +47,7 @@ static void ${UNREGISTER_HELPER_NAME}() {
   }
 }
 
-`;
+`
 
 const LEGACY_REGISTERED_HELPER = `static BOOL ${REGISTERED_HELPER_NAME}() {
 #if TARGET_IPHONE_SIMULATOR
@@ -77,55 +77,53 @@ static void ${UNREGISTER_HELPER_NAME}() {
   }
 }
 
-`;
+`
 
 const REGISTERED_CALL_PATTERNS = [
   '[[UIApplication sharedApplication] isRegisteredForRemoteNotifications]',
-  '[UIApplication sharedApplication].isRegisteredForRemoteNotifications',
-] as const;
+  '[UIApplication sharedApplication].isRegisteredForRemoteNotifications'
+] as const
 
 const UNREGISTER_CALL =
-  '[[UIApplication sharedApplication] unregisterForRemoteNotifications];';
+  '[[UIApplication sharedApplication] unregisterForRemoteNotifications];'
 
-const withRNFBMessagingMainThreadPatch: ConfigPlugin = config => {
-  return withDangerousMod(config, [
-    'ios',
-    async config => {
-      const projectRoot = config.modRequest.projectRoot;
+const withRNFBMessagingMainThreadPatch: ConfigPlugin = config => withDangerousMod(config, [
+  'ios',
+  async config => {
+    const projectRoot = config.modRequest.projectRoot
 
-      await assertSupportedRNFBMessagingVersion(projectRoot);
+    await assertSupportedRNFBMessagingVersion(projectRoot)
 
-      const filePath = path.join(
-        projectRoot,
-        RNFB_MESSAGING_MODULE_RELATIVE_PATH,
-      );
-      const source = await fs.readFile(filePath, 'utf8');
-      const patchedSource = patchRNFBMessagingModuleSource(source);
+    const filePath = path.join(
+      projectRoot,
+      RNFB_MESSAGING_MODULE_RELATIVE_PATH
+    )
+    const source = await fs.readFile(filePath, 'utf8')
+    const patchedSource = patchRNFBMessagingModuleSource(source)
 
-      if (patchedSource !== source) {
-        await fs.writeFile(filePath, patchedSource);
-      }
+    if (patchedSource !== source) {
+      await fs.writeFile(filePath, patchedSource)
+    }
 
-      return config;
-    },
-  ]);
-};
+    return config
+  }
+])
 
-async function assertSupportedRNFBMessagingVersion(
-  projectRoot: string,
+async function assertSupportedRNFBMessagingVersion (
+  projectRoot: string
 ): Promise<void> {
   const packageJsonPath = path.join(
     projectRoot,
-    RNFB_MESSAGING_PACKAGE_JSON_RELATIVE_PATH,
-  );
-  let packageJson: { version?: unknown };
+    RNFB_MESSAGING_PACKAGE_JSON_RELATIVE_PATH
+  )
+  let packageJson: { version?: unknown }
 
   try {
-    packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf8'));
+    packageJson = JSON.parse(await fs.readFile(packageJsonPath, 'utf8'))
   } catch (error) {
     throw new Error(
-      `[@fishonfire/bubbles-expo] Unable to read @react-native-firebase/messaging package.json before patching RNFBMessagingModule.mm: ${formatError(error)}`,
-    );
+      `[@fishonfire/bubbles-expo] Unable to read @react-native-firebase/messaging package.json before patching RNFBMessagingModule.mm: ${formatError(error)}`
+    )
   }
 
   if (
@@ -134,115 +132,117 @@ async function assertSupportedRNFBMessagingVersion(
   ) {
     throw new Error(
       `[@fishonfire/bubbles-expo] Unsupported @react-native-firebase/messaging version "${String(
-        packageJson.version,
-      )}" for the iOS main-thread patch. Expected ${SUPPORTED_RNFB_MESSAGING_VERSION}. Re-check RNFBMessagingModule.mm before widening this guard.`,
-    );
+        packageJson.version
+      )}" for the iOS main-thread patch. Expected ${SUPPORTED_RNFB_MESSAGING_VERSION}. Re-check RNFBMessagingModule.mm before widening this guard.`
+    )
   }
 }
 
-export function isSupportedRNFBMessagingVersion(version: string): boolean {
-  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version);
+export function isSupportedRNFBMessagingVersion (version: string): boolean {
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version)
+
   if (!match) {
-    return false;
+    return false
   }
 
-  const major = Number(match[1]);
-  const minor = Number(match[2]);
-  const patch = Number(match[3]);
+  const major = Number(match[1])
+  const minor = Number(match[2])
+  const patch = Number(match[3])
 
   if (major !== 26) {
-    return false;
+    return false
   }
 
   if (minor < 3) {
-    return false;
+    return false
   }
 
-  return minor > 3 || patch >= 3;
+  return minor > 3 || patch >= 3
 }
 
-export function patchRNFBMessagingModuleSource(source: string): string {
-  const hasRegisteredHelper = source.includes(REGISTERED_HELPER_NAME);
-  const hasUnregisterHelper = source.includes(UNREGISTER_HELPER_NAME);
+export function patchRNFBMessagingModuleSource (source: string): string {
+  const hasRegisteredHelper = source.includes(REGISTERED_HELPER_NAME)
+  const hasUnregisterHelper = source.includes(UNREGISTER_HELPER_NAME)
 
   if (hasRegisteredHelper || hasUnregisterHelper) {
     if (!hasRegisteredHelper || !hasUnregisterHelper) {
       throw new Error(
-        '[@fishonfire/bubbles-expo] RNFBMessagingModule.mm contains a partial iOS main-thread patch. Remove the partial patch before running Expo prebuild again.',
-      );
+        '[@fishonfire/bubbles-expo] RNFBMessagingModule.mm contains a partial iOS main-thread patch. Remove the partial patch before running Expo prebuild again.'
+      )
     }
 
     if (source.includes(REGISTERED_HELPER)) {
-      return source;
+      return source
     }
 
     if (source.includes(LEGACY_REGISTERED_HELPER)) {
-      return source.replace(LEGACY_REGISTERED_HELPER, REGISTERED_HELPER);
+      return source.replace(LEGACY_REGISTERED_HELPER, REGISTERED_HELPER)
     }
 
     throw new Error(
-      '[@fishonfire/bubbles-expo] RNFBMessagingModule.mm contains an unrecognized existing iOS main-thread patch. Restore the original RNFirebase source before running Expo prebuild again.',
-    );
+      '[@fishonfire/bubbles-expo] RNFBMessagingModule.mm contains an unrecognized existing iOS main-thread patch. Restore the original RNFirebase source before running Expo prebuild again.'
+    )
   }
 
   if (!source.includes(IMPLEMENTATION_ANCHOR)) {
     throw new Error(
-      `[@fishonfire/bubbles-expo] Unable to patch RNFBMessagingModule.mm: expected "${IMPLEMENTATION_ANCHOR}" was not found.`,
-    );
+      `[@fishonfire/bubbles-expo] Unable to patch RNFBMessagingModule.mm: expected "${IMPLEMENTATION_ANCHOR}" was not found.`
+    )
   }
 
   const registeredCallCount = REGISTERED_CALL_PATTERNS.reduce(
     (count, pattern) => count + countOccurrences(source, pattern),
-    0,
-  );
+    0
+  )
 
   if (registeredCallCount === 0) {
     throw new Error(
-      '[@fishonfire/bubbles-expo] Unable to patch RNFBMessagingModule.mm: expected isRegisteredForRemoteNotifications call sites were not found.',
-    );
+      '[@fishonfire/bubbles-expo] Unable to patch RNFBMessagingModule.mm: expected isRegisteredForRemoteNotifications call sites were not found.'
+    )
   }
 
   if (!source.includes(UNREGISTER_CALL)) {
     throw new Error(
-      '[@fishonfire/bubbles-expo] Unable to patch RNFBMessagingModule.mm: expected unregisterForRemoteNotifications call site was not found.',
-    );
+      '[@fishonfire/bubbles-expo] Unable to patch RNFBMessagingModule.mm: expected unregisterForRemoteNotifications call site was not found.'
+    )
   }
 
-  let nextSource = source;
+  let nextSource = source
+
   for (const pattern of REGISTERED_CALL_PATTERNS) {
     nextSource = replaceAllLiteral(
       nextSource,
       pattern,
-      `${REGISTERED_HELPER_NAME}()`,
-    );
+      `${REGISTERED_HELPER_NAME}()`
+    )
   }
 
   nextSource = replaceAllLiteral(
     nextSource,
     UNREGISTER_CALL,
-    `${UNREGISTER_HELPER_NAME}();`,
-  );
+    `${UNREGISTER_HELPER_NAME}();`
+  )
 
   return nextSource.replace(
     IMPLEMENTATION_ANCHOR,
-    `${REGISTERED_HELPER}${IMPLEMENTATION_ANCHOR}`,
-  );
+    `${REGISTERED_HELPER}${IMPLEMENTATION_ANCHOR}`
+  )
 }
 
-function countOccurrences(source: string, pattern: string): number {
-  return source.split(pattern).length - 1;
+function countOccurrences (source: string, pattern: string): number {
+  return source.split(pattern).length - 1
 }
 
-function replaceAllLiteral(
+function replaceAllLiteral (
   source: string,
   pattern: string,
-  replacement: string,
+  replacement: string
 ): string {
-  return source.split(pattern).join(replacement);
+  return source.split(pattern).join(replacement)
 }
 
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function formatError (error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
-export default withRNFBMessagingMainThreadPatch;
+export default withRNFBMessagingMainThreadPatch

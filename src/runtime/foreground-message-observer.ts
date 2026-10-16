@@ -1,64 +1,66 @@
 import {
   getMessaging,
   onMessage,
-  type RemoteMessage,
-} from '@react-native-firebase/messaging';
-import { Platform } from 'react-native';
+  type RemoteMessage
+} from '@react-native-firebase/messaging'
+import { Platform } from 'react-native'
 
 import {
-  observeStoredBubblesNotificationReceived,
-} from '../notifications/delivery-status';
+  observeStoredBubblesNotificationReceived
+} from '../notifications/delivery-status'
 import {
-  scheduleBubblesLocalNotification,
-} from '../notifications/local-notification';
+  scheduleBubblesLocalNotification
+} from '../notifications/local-notification'
 import {
   getBubblesNotificationPayloadFromRemoteMessage,
-  hasFirebaseDisplayNotification,
-} from '../notifications/remote-message';
+  hasFirebaseDisplayNotification
+} from '../notifications/remote-message'
 
-function supportsFirebaseForegroundMessages(): boolean {
-  return Platform.OS === 'android' || Platform.OS === 'ios';
+function supportsFirebaseForegroundMessages (): boolean {
+  return Platform.OS === 'android' || Platform.OS === 'ios'
 }
 
-const FOREGROUND_NOTIFICATION_SOURCE = 'Firebase foreground message';
+const FOREGROUND_NOTIFICATION_SOURCE = 'Firebase foreground message'
 
-async function observeForegroundNotificationReceived(
-  notificationId: string | null,
+async function observeForegroundNotificationReceived (
+  notificationId: string | null
 ) {
   try {
     await observeStoredBubblesNotificationReceived({
       source: FOREGROUND_NOTIFICATION_SOURCE,
-      notificationId,
-    });
+      notificationId
+    })
   } catch (error) {
     console.error(
       `[@fishonfire/bubbles-expo] Failed to post ${FOREGROUND_NOTIFICATION_SOURCE} received delivery status.`,
-      error,
-    );
+      error
+    )
   }
 }
 
-async function handleFirebaseForegroundMessage(
-  remoteMessage: RemoteMessage,
+async function handleFirebaseForegroundMessage (
+  remoteMessage: RemoteMessage
 ): Promise<void> {
   const payload =
-    getBubblesNotificationPayloadFromRemoteMessage(remoteMessage);
+    getBubblesNotificationPayloadFromRemoteMessage(remoteMessage)
 
-  void observeForegroundNotificationReceived(payload.notificationId);
+  void observeForegroundNotificationReceived(payload.notificationId)
 
   if (!hasFirebaseDisplayNotification(remoteMessage)) {
-    return;
+    return
   }
 
   await scheduleBubblesLocalNotification({
     source: FOREGROUND_NOTIFICATION_SOURCE,
-    payload,
-  });
+    payload
+  })
 }
 
-export function observeBubblesForegroundMessages(): () => void {
+export function observeBubblesForegroundMessages (): () => void {
   if (!supportsFirebaseForegroundMessages()) {
-    return () => {};
+    return () => {
+      // Unsupported platforms have no subscription to release.
+    }
   }
 
   const unsubscribe = onMessage(
@@ -68,14 +70,14 @@ export function observeBubblesForegroundMessages(): () => void {
         (error) => {
           console.error(
             '[@fishonfire/bubbles-expo] Failed while handling a Firebase foreground message.',
-            error,
-          );
-        },
-      );
-    },
-  );
+            error
+          )
+        }
+      )
+    }
+  )
 
   return () => {
-    unsubscribe();
-  };
+    unsubscribe()
+  }
 }

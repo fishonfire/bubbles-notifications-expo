@@ -1,33 +1,33 @@
-import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import ts from 'typescript';
-import { test } from 'vitest';
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import ts from 'typescript'
+import { test } from 'vitest'
 
-const PROJECT_ROOT = resolve(import.meta.dirname, '..');
+const PROJECT_ROOT = resolve(import.meta.dirname, '..')
 
-function getModuleExports(relativePath: string): string[] {
-  const filePath = resolve(PROJECT_ROOT, relativePath);
+function getModuleExports (relativePath: string): string[] {
+  const filePath = resolve(PROJECT_ROOT, relativePath)
   const program = ts.createProgram([filePath], {
     jsx: ts.JsxEmit.ReactJSX,
     module: ts.ModuleKind.ESNext,
     moduleResolution: ts.ModuleResolutionKind.Bundler,
     skipLibCheck: true,
-    target: ts.ScriptTarget.ES2020,
-  });
-  const sourceFile = program.getSourceFile(filePath);
+    target: ts.ScriptTarget.ES2020
+  })
+  const sourceFile = program.getSourceFile(filePath)
 
-  assert.ok(sourceFile);
+  assert.ok(sourceFile)
 
-  const moduleSymbol = program.getTypeChecker().getSymbolAtLocation(sourceFile);
+  const moduleSymbol = program.getTypeChecker().getSymbolAtLocation(sourceFile)
 
-  assert.ok(moduleSymbol);
+  assert.ok(moduleSymbol)
 
   return program
     .getTypeChecker()
     .getExportsOfModule(moduleSymbol)
     .map(({ name }) => name)
-    .sort();
+    .sort()
 }
 
 test('package root exposes only the supported application API', () => {
@@ -62,9 +62,9 @@ test('package root exposes only the supported application API', () => {
     'getNotificationPermissions',
     'isNotificationPermissionGranted',
     'registerBubblesBackgroundHandlers',
-    'useBubblesNotifications',
-  ]);
-});
+    'useBubblesNotifications'
+  ])
+})
 
 test('compatibility subpath contains only demonstrated legacy APIs', () => {
   assert.deepEqual(getModuleExports('src/compat.ts'), [
@@ -72,20 +72,20 @@ test('compatibility subpath contains only demonstrated legacy APIs', () => {
     'readStoredApiBaseUrl',
     'readStoredAppKey',
     'readStoredDeviceId',
-    'updateBubblesDeviceAttributes',
-  ]);
+    'updateBubblesDeviceAttributes'
+  ])
 
   const packageJson = JSON.parse(
-    readFileSync(resolve(PROJECT_ROOT, 'package.json'), 'utf8'),
+    readFileSync(resolve(PROJECT_ROOT, 'package.json'), 'utf8')
   ) as {
     exports: Record<string, unknown>;
     scripts: Record<string, string>;
-  };
+  }
 
   assert.deepEqual(Object.keys(packageJson.exports).sort(), [
     '.',
     './compat',
-    './register-task',
-  ]);
-  assert.match(packageJson.scripts['build:runtime'], /src\/compat\.ts/);
-});
+    './register-task'
+  ])
+  assert.match(packageJson.scripts['build:runtime'], /src\/compat\.ts/)
+})

@@ -1,7 +1,7 @@
 import {
   ANDROID_CHANNEL_IMPORTANCE_VALUES,
-  type AndroidChannelImportance,
-} from './shared-config';
+  type AndroidChannelImportance
+} from './shared-config'
 
 export type BubblesNotificationsExpoPluginConfig = {
   defaultChannelId?: string;
@@ -23,148 +23,148 @@ export type NormalizedBubblesNotificationsExpoPluginConfig = {
   enableFirebaseInstallationPushRegistration: boolean;
 };
 
-function fail(message: string): never {
-  throw new Error(`[@fishonfire/bubbles-expo] ${message}`);
+function fail (message: string): never {
+  throw new Error(`[@fishonfire/bubbles-expo] ${message}`)
 }
 
-function assertPlainObjectOrUndefined(
-  value: unknown,
+function assertPlainObjectOrUndefined (
+  value: unknown
 ): asserts value is Record<string, unknown> | undefined {
   if (value === undefined) {
-    return;
+    return
   }
 
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     fail(
-      'Plugin options must be an object, for example ["@fishonfire/bubbles-expo", { "defaultChannelId": "default" }].',
-    );
+      'Plugin options must be an object, for example ["@fishonfire/bubbles-expo", { "defaultChannelId": "default" }].'
+    )
   }
 }
 
-function getOptionalNonEmptyString(
+function getOptionalNonEmptyString (
   value: unknown,
-  propertyName: string,
+  propertyName: string
 ): string | undefined {
   if (value === undefined) {
-    return undefined;
+    return undefined
   }
 
   if (typeof value !== 'string') {
-    fail(`"${propertyName}" must be a string.`);
+    fail(`"${propertyName}" must be a string.`)
   }
 
-  const trimmedValue = value.trim();
+  const trimmedValue = value.trim()
 
   if (!trimmedValue) {
-    fail(`"${propertyName}" must not be empty.`);
+    fail(`"${propertyName}" must not be empty.`)
   }
 
-  return trimmedValue;
+  return trimmedValue
 }
 
-function getBooleanWithDefault(
+function getBooleanWithDefault (
   value: unknown,
   propertyName: string,
-  fallback: boolean,
+  fallback: boolean
 ): boolean {
   if (value === undefined) {
-    return fallback;
+    return fallback
   }
 
   if (typeof value !== 'boolean') {
-    fail(`"${propertyName}" must be a boolean.`);
+    fail(`"${propertyName}" must be a boolean.`)
   }
 
-  return value;
+  return value
 }
 
-function getAndroidChannelImportance(
-  value: unknown,
+function getAndroidChannelImportance (
+  value: unknown
 ): AndroidChannelImportance {
   if (value === undefined) {
-    return 'max';
+    return 'max'
   }
 
   if (
     typeof value !== 'string' ||
     !ANDROID_CHANNEL_IMPORTANCE_VALUES.includes(
-      value as AndroidChannelImportance,
+      value as AndroidChannelImportance
     )
   ) {
     fail(
       `"androidChannelImportance" must be one of: ${ANDROID_CHANNEL_IMPORTANCE_VALUES.join(
-        ', ',
-      )}.`,
-    );
+        ', '
+      )}.`
+    )
   }
 
-  return value as AndroidChannelImportance;
+  return value as AndroidChannelImportance
 }
 
-function getOptionalNotificationColor(
-  value: unknown,
+function getOptionalNotificationColor (
+  value: unknown
 ): string | undefined {
   const color = getOptionalNonEmptyString(
     value,
-    'androidNotificationColor',
-  );
+    'androidNotificationColor'
+  )
 
   if (color === undefined) {
-    return undefined;
+    return undefined
   }
 
   if (!/^#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(color)) {
     fail(
-      '"androidNotificationColor" must be a hex color in #RRGGBB or #AARRGGBB format.',
-    );
+      '"androidNotificationColor" must be a hex color in #RRGGBB or #AARRGGBB format.'
+    )
   }
 
-  return color;
+  return color
 }
 
-export function normalizePluginConfig(
-  input?: BubblesNotificationsExpoPluginConfig | void,
+export function normalizePluginConfig (
+  input?: BubblesNotificationsExpoPluginConfig | void
 ): NormalizedBubblesNotificationsExpoPluginConfig {
-  assertPlainObjectOrUndefined(input);
+  assertPlainObjectOrUndefined(input)
 
-  const options = input ?? {};
+  const options = input ?? {}
 
   return {
     defaultChannelId:
       getOptionalNonEmptyString(
         options.defaultChannelId,
-        'defaultChannelId',
+        'defaultChannelId'
       ) ?? 'default',
 
     defaultChannelName:
       getOptionalNonEmptyString(
         options.defaultChannelName,
-        'defaultChannelName',
+        'defaultChannelName'
       ) ?? 'Default',
 
     androidChannelImportance: getAndroidChannelImportance(
-      options.androidChannelImportance,
+      options.androidChannelImportance
     ),
 
     androidNotificationIcon: getOptionalNonEmptyString(
       options.androidNotificationIcon,
-      'androidNotificationIcon',
+      'androidNotificationIcon'
     ),
 
     androidNotificationColor: getOptionalNotificationColor(
-      options.androidNotificationColor,
+      options.androidNotificationColor
     ),
 
     enableBackgroundRemoteNotifications: getBooleanWithDefault(
       options.enableBackgroundRemoteNotifications,
       'enableBackgroundRemoteNotifications',
-      true,
+      true
     ),
 
     enableFirebaseInstallationPushRegistration: getBooleanWithDefault(
       options.enableFirebaseInstallationPushRegistration,
       'enableFirebaseInstallationPushRegistration',
-      false,
-    ),
-  };
+      false
+    )
+  }
 }

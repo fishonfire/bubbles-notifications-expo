@@ -1,15 +1,15 @@
-import * as Notifications from 'expo-notifications';
+import * as Notifications from 'expo-notifications'
 
-import { observeStoredBubblesNotificationClicked } from '../notifications/delivery-status';
+import { observeStoredBubblesNotificationClicked } from '../notifications/delivery-status'
 import {
   getBubblesNotificationDataFromNotification,
-  normalizeBubblesNotificationPayload,
-} from '../notifications/payload';
+  normalizeBubblesNotificationPayload
+} from '../notifications/payload'
 
-import type { BubblesNotificationResponseEvent } from './context';
+import type { BubblesNotificationResponseEvent } from './context'
 
-const MAX_HANDLED_RESPONSE_KEYS = 200;
-const handledResponseKeys = new Set<string>();
+const MAX_HANDLED_RESPONSE_KEYS = 200
+const handledResponseKeys = new Set<string>()
 
 export interface ObserveBubblesNotificationResponsesOptions {
   onNotificationResponse?: (
@@ -22,54 +22,54 @@ interface ObservedNotificationResponse {
   notificationId: string | null;
 }
 
-function buildNotificationResponseKey(
-  response: Notifications.NotificationResponse,
+function buildNotificationResponseKey (
+  response: Notifications.NotificationResponse
 ): string {
   const payload = normalizeBubblesNotificationPayload(
-    getBubblesNotificationDataFromNotification(response.notification),
-  );
+    getBubblesNotificationDataFromNotification(response.notification)
+  )
 
   if (payload.notificationId) {
-    return `notification:${payload.notificationId}`;
+    return `notification:${payload.notificationId}`
   }
 
-  return `request:${response.notification.request.identifier}`;
+  return `request:${response.notification.request.identifier}`
 }
 
-function markNotificationResponseHandled(responseKey: string): boolean {
+function markNotificationResponseHandled (responseKey: string): boolean {
   if (handledResponseKeys.has(responseKey)) {
-    return false;
+    return false
   }
 
-  handledResponseKeys.add(responseKey);
+  handledResponseKeys.add(responseKey)
 
   if (handledResponseKeys.size > MAX_HANDLED_RESPONSE_KEYS) {
-    const oldestResponseKey = handledResponseKeys.values().next().value;
+    const oldestResponseKey = handledResponseKeys.values().next().value
 
     if (oldestResponseKey) {
-      handledResponseKeys.delete(oldestResponseKey);
+      handledResponseKeys.delete(oldestResponseKey)
     }
   }
 
-  return true;
+  return true
 }
 
-function logNotificationResponseError(
+function logNotificationResponseError (
   description: string,
-  error: unknown,
+  error: unknown
 ) {
   console.error(
     `[@fishonfire/bubbles-expo] Failed during notification response ${description}.`,
-    error,
-  );
+    error
+  )
 }
 
-function buildObservedNotificationResponse(
-  response: Notifications.NotificationResponse,
+function buildObservedNotificationResponse (
+  response: Notifications.NotificationResponse
 ): ObservedNotificationResponse {
   const payload = normalizeBubblesNotificationPayload(
-    getBubblesNotificationDataFromNotification(response.notification),
-  );
+    getBubblesNotificationDataFromNotification(response.notification)
+  )
 
   return {
     notificationId: payload.notificationId,
@@ -77,73 +77,73 @@ function buildObservedNotificationResponse(
       notification: response.notification,
       url: payload.url,
       notificationId: payload.notificationId,
-      data: payload.data,
-    },
-  };
-}
-
-function postNotificationClickedDeliveryStatus(
-  notificationId: string | null,
-) {
-  void observeStoredBubblesNotificationClicked({
-    source: 'notification response',
-    notificationId,
-  }).catch((error) => {
-    logNotificationResponseError('delivery-status update', error);
-  });
-}
-
-function handleNotificationResponse(
-  response: Notifications.NotificationResponse,
-  options: ObserveBubblesNotificationResponsesOptions,
-) {
-  const observedResponse = buildObservedNotificationResponse(response);
-
-  postNotificationClickedDeliveryStatus(observedResponse.notificationId);
-  options.onNotificationResponse?.(observedResponse.event);
-}
-
-function processStartupNotificationResponse(
-  processNotificationResponse: (
-    response: Notifications.NotificationResponse,
-  ) => void,
-) {
-  try {
-    const lastResponse = Notifications.getLastNotificationResponse();
-
-    if (!lastResponse) {
-      return;
+      data: payload.data
     }
-
-    processNotificationResponse(lastResponse);
-    Notifications.clearLastNotificationResponse();
-  } catch (error) {
-    logNotificationResponseError('initial response handling', error);
   }
 }
 
-export function observeBubblesNotificationResponses(
-  options: ObserveBubblesNotificationResponsesOptions,
-): () => void {
-  const processNotificationResponse = (
-    response: Notifications.NotificationResponse,
-  ) => {
-    const responseKey = buildNotificationResponseKey(response);
+function postNotificationClickedDeliveryStatus (
+  notificationId: string | null
+) {
+  void observeStoredBubblesNotificationClicked({
+    source: 'notification response',
+    notificationId
+  }).catch((error) => {
+    logNotificationResponseError('delivery-status update', error)
+  })
+}
 
-    if (!markNotificationResponseHandled(responseKey)) {
-      return;
+function handleNotificationResponse (
+  response: Notifications.NotificationResponse,
+  options: ObserveBubblesNotificationResponsesOptions
+) {
+  const observedResponse = buildObservedNotificationResponse(response)
+
+  postNotificationClickedDeliveryStatus(observedResponse.notificationId)
+  options.onNotificationResponse?.(observedResponse.event)
+}
+
+function processStartupNotificationResponse (
+  processNotificationResponse: (
+    response: Notifications.NotificationResponse,
+  ) => void
+) {
+  try {
+    const lastResponse = Notifications.getLastNotificationResponse()
+
+    if (!lastResponse) {
+      return
     }
 
-    handleNotificationResponse(response, options);
-  };
+    processNotificationResponse(lastResponse)
+    Notifications.clearLastNotificationResponse()
+  } catch (error) {
+    logNotificationResponseError('initial response handling', error)
+  }
+}
 
-  processStartupNotificationResponse(processNotificationResponse);
+export function observeBubblesNotificationResponses (
+  options: ObserveBubblesNotificationResponsesOptions
+): () => void {
+  const processNotificationResponse = (
+    response: Notifications.NotificationResponse
+  ) => {
+    const responseKey = buildNotificationResponseKey(response)
+
+    if (!markNotificationResponseHandled(responseKey)) {
+      return
+    }
+
+    handleNotificationResponse(response, options)
+  }
+
+  processStartupNotificationResponse(processNotificationResponse)
 
   const subscription = Notifications.addNotificationResponseReceivedListener(
-    processNotificationResponse,
-  );
+    processNotificationResponse
+  )
 
   return () => {
-    subscription.remove();
-  };
+    subscription.remove()
+  }
 }

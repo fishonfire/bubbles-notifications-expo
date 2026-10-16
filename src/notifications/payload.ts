@@ -1,4 +1,4 @@
-import type { Notification } from 'expo-notifications';
+import type { Notification } from 'expo-notifications'
 
 export interface BubblesNotificationDataContract {
   notification_id: string;
@@ -39,43 +39,44 @@ export interface BubblesNotificationPayload {
   url: string | null;
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
+function isPlainObject (value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-function getOptionalNonEmptyString(value: unknown): string | null {
+function getOptionalNonEmptyString (value: unknown): string | null {
   if (typeof value !== 'string') {
-    return null;
+    return null
   }
 
-  const trimmedValue = value.trim();
-  return trimmedValue.length > 0 ? trimmedValue : null;
+  const trimmedValue = value.trim()
+
+  return trimmedValue.length > 0 ? trimmedValue : null
 }
 
-function getOptionalIdentifier(value: unknown): string | null {
+function getOptionalIdentifier (value: unknown): string | null {
   if (typeof value === 'number') {
-    return Number.isFinite(value) ? String(value) : null;
+    return Number.isFinite(value) ? String(value) : null
   }
 
-  return getOptionalNonEmptyString(value);
+  return getOptionalNonEmptyString(value)
 }
 
-export function getBubblesNotificationData(
-  value: unknown,
+export function getBubblesNotificationData (
+  value: unknown
 ): Record<string, unknown> {
-  return isPlainObject(value) ? value : {};
+  return isPlainObject(value) ? value : {}
 }
 
-export function getBubblesNotificationDataFromNotification(
-  notification: Notification,
+export function getBubblesNotificationDataFromNotification (
+  notification: Notification
 ): Record<string, unknown> {
-  return getBubblesNotificationData(notification.request.content.data);
+  return getBubblesNotificationData(notification.request.content.data)
 }
 
-export function normalizeBubblesNotificationPayload(
-  value: unknown,
+export function normalizeBubblesNotificationPayload (
+  value: unknown
 ): BubblesNotificationPayload {
-  const data = getBubblesNotificationData(value);
+  const data = getBubblesNotificationData(value)
 
   return {
     data,
@@ -85,6 +86,6 @@ export function normalizeBubblesNotificationPayload(
     source: getOptionalNonEmptyString(data.source),
     messageId: getOptionalIdentifier(data.message_id),
     campaignId: getOptionalIdentifier(data.campaign_id),
-    url: getOptionalNonEmptyString(data.url),
-  };
+    url: getOptionalNonEmptyString(data.url)
+  }
 }
