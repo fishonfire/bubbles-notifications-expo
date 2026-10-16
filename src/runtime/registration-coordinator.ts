@@ -13,7 +13,7 @@ import {
   type RuntimeStateUpdate
 } from './provider-state'
 
-type RegistrationOperation = () => Promise<RuntimeStateUpdate | void>;
+type RegistrationOperation = () => Promise<RuntimeStateUpdate | void>
 
 function getFailedRuntimeState (error: unknown): Partial<RuntimeStateUpdate> {
   return error instanceof BubblesNotificationsSyncError

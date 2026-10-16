@@ -51,7 +51,7 @@ export type BubblesDeviceAttributeSyncResult =
   | { status: 'succeeded'; error: null }
   | { status: 'skipped'; error: null }
   | { status: 'pending'; error: null }
-  | { status: 'failed'; error: Error };
+  | { status: 'failed'; error: Error }
 
 export class BubblesNotificationsSyncError extends Error {
   readonly snapshot: BubblesNotificationsRuntimeSnapshot

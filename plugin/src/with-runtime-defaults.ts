@@ -9,7 +9,7 @@ type RuntimeDefaults = Pick<
   | 'defaultChannelName'
   | 'androidChannelImportance'
   | 'enableFirebaseInstallationPushRegistration'
->;
+>
 
 function fail (message: string): never {
   throw new Error(`[@fishonfire/bubbles-expo] ${message}`)

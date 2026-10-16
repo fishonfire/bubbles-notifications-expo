@@ -8,7 +8,7 @@ type ExpoNotificationsPluginProps = {
   icon?: string;
   color?: string;
   enableBackgroundRemoteNotifications: boolean;
-};
+}
 
 export default function withExpoNotifications (
   config: ExpoConfig,

@@ -13,7 +13,7 @@ const IOS_GRANTED_AUTHORIZATION_STATUSES = new Set([
 
 export type PermissionRequestOptions = Parameters<
   typeof Notifications.requestPermissionsAsync
->[0];
+>[0]
 
 export interface GetNotificationPermissionsOptions {
   requestPermissions?: boolean;

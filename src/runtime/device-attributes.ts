@@ -6,7 +6,7 @@ import type {
   BubblesDeviceAttributes
 } from '../api/device-client'
 
-type AttributeSection = Record<string, BubblesDeviceAttributeValue | undefined>;
+type AttributeSection = Record<string, BubblesDeviceAttributeValue | undefined>
 
 function compactAttributes (
   attributes: AttributeSection
@@ -14,7 +14,7 @@ function compactAttributes (
   return Object.fromEntries(
     Object.entries(attributes).filter((entry): entry is [
       string,
-      BubblesDeviceAttributeValue,
+      BubblesDeviceAttributeValue
     ] => entry[1] !== null && entry[1] !== undefined)
   )
 }

@@ -18,7 +18,7 @@ export type RuntimeStateUpdate = Pick<
   | 'tokenType'
   | 'permissionStatus'
   | 'notificationsEnabled'
->;
+>
 
 function createInitialRuntimeState (
   deviceId: string | null,

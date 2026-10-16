@@ -14,7 +14,7 @@ import {
 } from '../internal/validation'
 import { failWithBubblesError } from '../internal/errors'
 
-type DeviceClientFactoryOptions = Omit<DeviceClientOptions, 'baseUrl'>;
+type DeviceClientFactoryOptions = Omit<DeviceClientOptions, 'baseUrl'>
 
 /**
  * Public delivery status labels accepted by the Bubbles device API.
@@ -32,7 +32,7 @@ export const BUBBLES_DELIVERY_STATUSES = {
 } as const
 
 export type BubblesDeliveryStatus =
-  (typeof BUBBLES_DELIVERY_STATUSES)[keyof typeof BUBBLES_DELIVERY_STATUSES];
+  (typeof BUBBLES_DELIVERY_STATUSES)[keyof typeof BUBBLES_DELIVERY_STATUSES]
 
 export interface BubblesDeliveryStatusPayload {
   status?: BubblesDeliveryStatus;

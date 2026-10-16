@@ -37,7 +37,7 @@ export interface BubblesDeviceClientOptions extends DeviceClientOptions {
   appKey?: string;
 }
 
-type DeviceClientFactoryOptions = Omit<BubblesDeviceClientOptions, 'baseUrl'>;
+type DeviceClientFactoryOptions = Omit<BubblesDeviceClientOptions, 'baseUrl'>
 
 interface BubblesDeviceClientInput {
   apiBaseUrl?: string;
@@ -48,20 +48,20 @@ interface BubblesDeviceClientInput {
 
 export interface CreateBubblesDeviceOptions
   extends BuildBubblesCreateDevicePayloadOptions,
-    BubblesDeviceClientInput {
+  BubblesDeviceClientInput {
   requestOptions?: RequestOptions;
 }
 
 export interface UpdateBubblesDeviceOptions
   extends BuildBubblesDevicePayloadOptions,
-    BubblesDeviceClientInput {
+  BubblesDeviceClientInput {
   deviceId: string | number;
   requestOptions?: UpdateDeviceOptions;
 }
 
 export interface SyncBubblesDeviceOptions
   extends BuildBubblesCreateDevicePayloadOptions,
-    BubblesDeviceClientInput {
+  BubblesDeviceClientInput {
   deviceId: string | number | null;
   createRequestOptions?: RequestOptions;
   updateRequestOptions?: UpdateDeviceOptions;
@@ -79,9 +79,9 @@ export type BubblesDeviceAttributeValue =
   | boolean
   | null
   | BubblesDeviceAttributeValue[]
-  | { [key: string]: BubblesDeviceAttributeValue };
+  | { [key: string]: BubblesDeviceAttributeValue }
 
-export type BubblesDeviceAttributes = Record<string, BubblesDeviceAttributeValue>;
+export type BubblesDeviceAttributes = Record<string, BubblesDeviceAttributeValue>
 
 export interface UpdateBubblesDeviceAttributesOptions
   extends BubblesDeviceClientInput {

@@ -1,6 +1,6 @@
 import { failWithBubblesError } from './errors'
 
-export type SupportedPlatform = 'android' | 'ios';
+export type SupportedPlatform = 'android' | 'ios'
 
 function isSupportedPlatform (
   value: string

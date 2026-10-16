@@ -13,7 +13,7 @@ const handledResponseKeys = new Set<string>()
 
 export interface ObserveBubblesNotificationResponsesOptions {
   onNotificationResponse?: (
-    event: BubblesNotificationResponseEvent,
+    event: BubblesNotificationResponseEvent
   ) => void;
 }
 
@@ -105,7 +105,7 @@ function handleNotificationResponse (
 
 function processStartupNotificationResponse (
   processNotificationResponse: (
-    response: Notifications.NotificationResponse,
+    response: Notifications.NotificationResponse
   ) => void
 ) {
   try {
