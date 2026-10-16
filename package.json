@@ -1,6 +1,6 @@
 {
   "name": "@fishonfire/bubbles-expo",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "Expo config plugin, explicit background registration API, and React provider for Bubbles notifications.",
   "license": "GPL-3.0-only",
   "main": "./dist/index.js",
