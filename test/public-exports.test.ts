@@ -33,9 +33,12 @@ function getModuleExports (relativePath: string): string[] {
 test('package root exposes only the supported application API', () => {
   assert.deepEqual(getModuleExports('src/index.ts'), [
     'AndroidChannelImportance',
+    'BubblesAppAuthenticationError',
     'BubblesDeviceAttributeValue',
     'BubblesDeviceAttributes',
+    'BubblesDeviceIdentityError',
     'BubblesForegroundNotificationPayloadContract',
+    'BubblesMigrationPendingError',
     'BubblesNotificationDataContract',
     'BubblesNotificationResponseEvent',
     'BubblesNotificationsContextValue',
@@ -48,6 +51,8 @@ test('package root exposes only the supported application API', () => {
     'ForegroundPresentationOptions',
     'GetDeviceTokenOptions',
     'GetNotificationPermissionsOptions',
+    'OneSignalMigration',
+    'OneSignalMigrationBridge',
     'PermissionRequestOptions',
     'RegisterDevice',
     'RegisterDeviceOptions',

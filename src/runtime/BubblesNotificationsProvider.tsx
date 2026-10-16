@@ -1,3 +1,5 @@
+import { getOrCreateInstallationId } from '../storage/installation-id'
+import { normalizeSubscriptionId, type OneSignalMigration } from './migration'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AppState } from 'react-native'
 
@@ -6,7 +8,8 @@ import { getRequiredNonEmptyString } from '../internal/validation'
 import { flushStoredBubblesDeliveryStatuses } from '../notifications/delivery-status'
 import {
   patchStoredDeviceStateAsync,
-  readStoredDeviceIdAsync
+  readStoredDeviceIdAsync,
+  prepareRegistrationScope
 } from '../storage/device-state'
 import {
   updateBubblesDeviceAttributes,
@@ -61,6 +64,13 @@ async function flushStoredDeliveryStatusesBestEffort (
   }
 }
 
+function hasRequiredMigrationIdentity (
+  storedDeviceState: Awaited<ReturnType<typeof prepareRegistrationScope>>,
+  migrationPolicy: OneSignalMigration['policy']
+): boolean {
+  return migrationPolicy !== 'required' || !!storedDeviceState.oneSignalSubscriptionId
+}
+
 interface EnrolledSession {
   appId: string | number;
   appKey: string;
@@ -74,9 +84,21 @@ interface EnrolledSession {
 }
 
 interface ProviderConfiguration {
+  oneSignalMigration?: OneSignalMigration;
   appId: string | number;
   appKey: string;
   apiBaseUrl: string;
+}
+
+function areMigrationConfigurationsEqual (left?: OneSignalMigration, right?: OneSignalMigration): boolean {
+  const leftPolicy = left?.policy ?? 'disabled'
+  const rightPolicy = right?.policy ?? 'disabled'
+
+  if (leftPolicy !== rightPolicy) return false
+  if (left?.policy !== 'required' || right?.policy !== 'required') return true
+
+  return left.oneSignalAppId === right.oneSignalAppId && left.bridge === right.bridge &&
+    (left.readinessTimeoutMs ?? 3000) === (right.readinessTimeoutMs ?? 3000)
 }
 
 function areProviderConfigurationsEqual (
@@ -84,6 +106,7 @@ function areProviderConfigurationsEqual (
   right: ProviderConfiguration
 ): boolean {
   return (
+    areMigrationConfigurationsEqual(left.oneSignalMigration, right.oneSignalMigration) &&
     left.appId === right.appId &&
     left.appKey === right.appKey &&
     left.apiBaseUrl === right.apiBaseUrl
@@ -114,6 +137,7 @@ export function BubblesNotificationsProvider (
     appId,
     appKey,
     apiBaseUrl,
+    oneSignalMigration,
     ready,
     userId,
     aliasing,
@@ -123,6 +147,8 @@ export function BubblesNotificationsProvider (
     onNotificationResponse,
     children
   } = props
+  const migrationPolicy = oneSignalMigration?.policy ?? 'disabled'
+  const migrationBridge = oneSignalMigration?.policy === 'required' ? oneSignalMigration.bridge : undefined
   const normalizedUserId = normalizeUserId(userId ?? null)
   const [state, setState] = useState(getInitialRuntimeState)
   const {
@@ -139,14 +165,17 @@ export function BubblesNotificationsProvider (
   const providerConfigurationRef = useRef<ProviderConfiguration>({
     appId,
     appKey,
-    apiBaseUrl
+    apiBaseUrl,
+    oneSignalMigration
   })
+  const pendingEnrollmentRef = useRef<RegisterDeviceOptions | undefined | null>(null)
+  const registerDeviceRef = useRef<RegisterDevice | null>(null)
   const maintenancePendingRef = useRef(false)
   const maintenanceRequestedRef = useRef(false)
   const appStateRef = useRef(AppState.currentState)
 
   useLayoutEffect(() => {
-    const providerConfiguration = { appId, appKey, apiBaseUrl }
+    const providerConfiguration = { appId, appKey, apiBaseUrl, oneSignalMigration }
 
     if (!areProviderConfigurationsEqual(
       providerConfigurationRef.current,
@@ -156,8 +185,10 @@ export function BubblesNotificationsProvider (
       providerConfigurationVersionRef.current += 1
       enrollmentRequestVersionRef.current += 1
       enrolledSessionRef.current = null
+      currentDeviceIdRef.current = null
+      pendingEnrollmentRef.current = null
     }
-  }, [appId, appKey, apiBaseUrl])
+  }, [appId, appKey, apiBaseUrl, oneSignalMigration])
 
   async function maintainEnrolledSession () {
     let runtimeStateUpdate
@@ -171,6 +202,8 @@ export function BubblesNotificationsProvider (
       }
 
       const maintenanceResult = await maintainBubblesDevice({
+        oneSignalMigration: providerConfigurationRef.current.oneSignalMigration,
+        isCurrent: () => enrolledSessionRef.current === enrolledSession,
         appId: enrolledSession.appId,
         appKey: enrolledSession.appKey,
         apiBaseUrl: enrolledSession.apiBaseUrl,
@@ -179,7 +212,7 @@ export function BubblesNotificationsProvider (
         appVersion: enrolledSession.appVersion,
         deviceId: enrolledSession.deviceId,
         previousRegistrationState:
-              enrolledSession.registrationState
+          enrolledSession.registrationState
       })
 
       if (enrolledSessionRef.current !== enrolledSession) {
@@ -187,8 +220,8 @@ export function BubblesNotificationsProvider (
       }
 
       const nextDeviceId =
-            maintenanceResult.syncResult?.deviceId ??
-            enrolledSession.deviceId
+        maintenanceResult.syncResult?.deviceId ??
+        enrolledSession.deviceId
 
       enrolledSessionRef.current = {
         ...enrolledSession,
@@ -203,9 +236,9 @@ export function BubblesNotificationsProvider (
           pushToken: maintenanceResult.registrationState.token,
           tokenType: maintenanceResult.registrationState.tokenType,
           permissionStatus:
-                  maintenanceResult.registrationState.permissionStatus,
+              maintenanceResult.registrationState.permissionStatus,
           notificationsEnabled:
-                  maintenanceResult.registrationState.notificationsEnabled
+              maintenanceResult.registrationState.notificationsEnabled
         }
     } while (maintenanceRequestedRef.current)
 
@@ -214,6 +247,10 @@ export function BubblesNotificationsProvider (
 
   const requestMaintenance = useCallback(() => {
     if (enrolledSessionRef.current === null) {
+      const pending = pendingEnrollmentRef.current
+
+      if (pending !== null) void registerDeviceRef.current?.(pending as RegisterDeviceOptions).catch(() => undefined)
+
       return
     }
 
@@ -260,10 +297,13 @@ export function BubblesNotificationsProvider (
     void (async () => {
       try {
         const [storedDeviceState, permissions] = await Promise.all([
-          patchStoredDeviceStateAsync({
-            apiBaseUrl: getRequiredNonEmptyString(apiBaseUrl, 'apiBaseUrl'),
-            appKey: getRequiredNonEmptyString(appKey, 'appKey')
-          }),
+          (async () => {
+            const installationId = await getOrCreateInstallationId()
+            const scopedState = await prepareRegistrationScope(getRequiredNonEmptyString(apiBaseUrl, 'apiBaseUrl'), appId,
+              getRequiredNonEmptyString(appKey, 'appKey'), () => !isCancelled && isMountedRef.current)
+
+            return { ...scopedState, identityAcknowledged: scopedState.identityAcknowledged && scopedState.acknowledgedInstallationId === installationId }
+          })(),
           getNotificationPermissions({ requestPermissions: false })
         ])
 
@@ -283,6 +323,8 @@ export function BubblesNotificationsProvider (
         }))
 
         if (
+          storedDeviceState.identityAcknowledged &&
+          hasRequiredMigrationIdentity(storedDeviceState, migrationPolicy) &&
           storedDeviceState.deviceId &&
           storedDeviceState.apiBaseUrl &&
           storedDeviceState.appKey
@@ -305,7 +347,7 @@ export function BubblesNotificationsProvider (
     return () => {
       isCancelled = true
     }
-  }, [apiBaseUrl, appKey, isMountedRef])
+  }, [appId, apiBaseUrl, appKey, migrationPolicy, isMountedRef])
 
   useEffect(() => {
     updateBubblesForegroundPresentation(
@@ -321,6 +363,24 @@ export function BubblesNotificationsProvider (
   }), [requestMaintenance])
 
   useEffect(() => {
+    if (!migrationBridge) return
+    let active = true
+    const unsubscribe = migrationBridge.subscribe((id) => {
+      if (!active) return
+      const normalized = normalizeSubscriptionId(id)
+      const accepted = enrolledSessionRef.current?.registrationState.oneSignalSubscriptionId
+
+      if (normalized && accepted && normalized !== accepted) {
+        setState((current) => ({ ...current, error: new Error('OneSignal subscription changed; identity requires reconciliation.') }))
+
+        return
+      }
+      if (normalized) requestMaintenance()
+    })
+
+    return () => { active = false; unsubscribe() }
+  }, [migrationBridge, requestMaintenance])
+  useEffect(() => {
     const subscription = AppState.addEventListener(
       'change',
       (nextAppState) => {
@@ -329,7 +389,7 @@ export function BubblesNotificationsProvider (
         appStateRef.current = nextAppState
 
         if (previousAppState !== 'active' && nextAppState === 'active') {
-          void flushStoredDeliveryStatusesBestEffort(
+          if (enrolledSessionRef.current) void flushStoredDeliveryStatusesBestEffort(
             'after the app returned to the foreground'
           )
           requestMaintenance()
@@ -374,6 +434,8 @@ export function BubblesNotificationsProvider (
 
   const registerDevice: RegisterDevice = (options?: RegisterDeviceOptions) => {
     const providerConfiguration = providerConfigurationRef.current
+
+    pendingEnrollmentRef.current = options
     const requestVersion = enrollmentRequestVersionRef.current + 1
     const providerConfigurationVersion =
       providerConfigurationVersionRef.current
@@ -392,6 +454,8 @@ export function BubblesNotificationsProvider (
     ))
   }
 
+  registerDeviceRef.current = registerDevice
+
   function isCurrentEnrollmentRequest (
     requestVersion: number,
     providerConfigurationVersion: number
@@ -400,19 +464,7 @@ export function BubblesNotificationsProvider (
       providerConfigurationVersion === providerConfigurationVersionRef.current
   }
 
-  async function enrollDevice (
-    options: RegisterDeviceOptions | undefined,
-    previousSession: EnrolledSession | null,
-    providerConfiguration: ProviderConfiguration,
-    requestVersion: number,
-    providerConfigurationVersion: number
-  ) {
-    if (
-      !isCurrentEnrollmentRequest(requestVersion, providerConfigurationVersion)
-    ) {
-      return
-    }
-
+  function getEnrollmentUserId (options: RegisterDeviceOptions | undefined): string {
     const usesLegacyEnrollment = options === undefined
 
     if (usesLegacyEnrollment && !ready) {
@@ -430,6 +482,26 @@ export function BubblesNotificationsProvider (
         '"registerDevice(options)" requires a non-empty "userId".'
       )
     }
+
+    return enrollmentUserId
+  }
+
+  async function enrollDevice (
+    options: RegisterDeviceOptions | undefined,
+    previousSession: EnrolledSession | null,
+    providerConfiguration: ProviderConfiguration,
+    requestVersion: number,
+    providerConfigurationVersion: number
+  ) {
+    if (
+      !isCurrentEnrollmentRequest(requestVersion, providerConfigurationVersion)
+    ) {
+      return
+    }
+
+    const usesLegacyEnrollment = options === undefined
+
+    const enrollmentUserId = getEnrollmentUserId(options)
 
     const enrollmentAliasing = usesLegacyEnrollment
       ? aliasing
@@ -449,12 +521,14 @@ export function BubblesNotificationsProvider (
 
     const result = await registerBubblesDevice({
       ...providerConfiguration,
+      isCurrent: () => isMountedRef.current && requestVersion === enrollmentRequestVersionRef.current &&
+        providerConfigurationVersion === providerConfigurationVersionRef.current,
       userId: enrollmentUserId,
       aliasing: enrollmentAliasing,
       appVersion: enrollmentAppVersion,
       deviceId,
       loadDeviceId:
-          deviceId === null ? readStoredDeviceIdAsync : undefined,
+        deviceId === null ? readStoredDeviceIdAsync : undefined,
       registrationOptions: options,
       ...(sameSession
         ? {
@@ -469,6 +543,7 @@ export function BubblesNotificationsProvider (
       return
     }
 
+    pendingEnrollmentRef.current = null
     currentDeviceIdRef.current = result.deviceId
 
     if (result.deviceId !== null) {
@@ -498,7 +573,7 @@ export function BubblesNotificationsProvider (
       await waitForCurrentRegistration()
       const attributes = getAttributes()
 
-      const deviceId = currentDeviceIdRef.current
+      const deviceId = enrolledSessionRef.current?.deviceId ?? null
 
       if (deviceId === null) {
         failWithBubblesError(

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test, vi } from 'vitest'
 
-const NOTIFICATION_1 = 'notification-1'
+const NOTIFICATION_ID = 'notification-1'
 const API_BASE_URL = 'https://api.example.com'
-const NOTIFICATION_2 = 'notification-2'
+const SECOND_NOTIFICATION_ID = 'notification-2'
 
 const fileContents = new Map<string, string>()
 const documentDirectory = '/mock/document'
@@ -113,7 +113,7 @@ beforeEach(() => {
 test('queues delivery statuses when device state and api base URL are missing', async () => {
   await postStoredBubblesDeliveryStatus({
     source: 'test',
-    notificationId: NOTIFICATION_1,
+    notificationId: NOTIFICATION_ID,
     status: 'received'
   })
 
@@ -128,15 +128,15 @@ test('maps notification observations to their defined delivery statuses', async 
 
   await observeStoredBubblesNotificationReceived({
     source: 'foreground',
-    notificationId: NOTIFICATION_1
+    notificationId: NOTIFICATION_ID
   })
   await observeStoredBubblesLocalDisplayRequested({
     source: 'foreground',
-    notificationId: NOTIFICATION_1
+    notificationId: NOTIFICATION_ID
   })
   await observeStoredBubblesNotificationClicked({
     source: 'response',
-    notificationId: NOTIFICATION_1
+    notificationId: NOTIFICATION_ID
   })
 
   assert.deepEqual(
@@ -148,7 +148,7 @@ test('maps notification observations to their defined delivery statuses', async 
 test('flushes queued delivery statuses after app restart when device state is available', async () => {
   await postStoredBubblesDeliveryStatus({
     source: 'test',
-    notificationId: NOTIFICATION_1,
+    notificationId: NOTIFICATION_ID,
     status: 'received'
   })
 
@@ -163,7 +163,7 @@ test('flushes queued delivery statuses after app restart when device state is av
       apiBaseUrl: API_BASE_URL,
       appKey: 'app-key-1',
       deviceId: 'device-1',
-      notificationId: NOTIFICATION_1,
+      notificationId: NOTIFICATION_ID,
       status: 'received',
       error: undefined
     }
@@ -179,12 +179,12 @@ test('deduplicates clicked delivery statuses once per notification', async () =>
 
   await postStoredBubblesDeliveryStatus({
     source: 'test',
-    notificationId: NOTIFICATION_1,
+    notificationId: NOTIFICATION_ID,
     status: 'clicked'
   })
   await postStoredBubblesDeliveryStatus({
     source: 'test',
-    notificationId: NOTIFICATION_1,
+    notificationId: NOTIFICATION_ID,
     status: 'clicked'
   })
 
@@ -195,7 +195,7 @@ test('deduplicates clicked delivery statuses once per notification', async () =>
     })),
     [
       {
-        notificationId: NOTIFICATION_1,
+        notificationId: NOTIFICATION_ID,
         status: 'clicked'
       }
     ]
@@ -208,13 +208,13 @@ test('migration drops pending clicks already posted under another action key', a
   const ledgerUri = `${documentDirectory}/bubbles-notifications-expo-delivery-status-ledger.json`
   const createdAt = new Date().toISOString()
   const defaultActionKey = JSON.stringify([
-    NOTIFICATION_1,
+    NOTIFICATION_ID,
     'clicked',
     null,
     'default'
   ])
   const customActionKey = JSON.stringify([
-    NOTIFICATION_1,
+    NOTIFICATION_ID,
     'clicked',
     null,
     'custom'
@@ -227,14 +227,14 @@ test('migration drops pending clicks already posted under another action key', a
       pendingEvents: [
         {
           key: defaultActionKey,
-          notificationId: NOTIFICATION_1,
+          notificationId: NOTIFICATION_ID,
           status: 'clicked',
           actionId: 'default',
           createdAt
         },
         {
           key: customActionKey,
-          notificationId: NOTIFICATION_1,
+          notificationId: NOTIFICATION_ID,
           status: 'clicked',
           actionId: 'custom',
           createdAt
@@ -248,7 +248,7 @@ test('migration drops pending clicks already posted under another action key', a
 
   assert.deepEqual(ledger.pendingEvents, [])
   assert.deepEqual(ledger.postedEventKeys, [
-    JSON.stringify([NOTIFICATION_1, 'clicked', null])
+    JSON.stringify([NOTIFICATION_ID, 'clicked', null])
   ])
 
   storedDeviceState.deviceId = 'device-1'
@@ -268,7 +268,7 @@ test('leaves failed delivery statuses queued for retry', async () => {
     () =>
       postStoredBubblesDeliveryStatus({
         source: 'test',
-        notificationId: NOTIFICATION_1,
+        notificationId: NOTIFICATION_ID,
         status: 'shown'
       }),
     /network unavailable/
@@ -278,7 +278,7 @@ test('leaves failed delivery statuses queued for retry', async () => {
 })
 
 test('serializes concurrent delivery-status ledger enqueues', async () => {
-  const events = [NOTIFICATION_1, NOTIFICATION_2, 'notification-3'].map(
+  const events = [NOTIFICATION_ID, SECOND_NOTIFICATION_ID, 'notification-3'].map(
     (notificationId) =>
       createStoredDeliveryStatusEvent({
         notificationId,
@@ -294,7 +294,7 @@ test('serializes concurrent delivery-status ledger enqueues', async () => {
     readStoredDeliveryStatusLedger().pendingEvents.map(
       (event) => event.notificationId
     ),
-    [NOTIFICATION_1, NOTIFICATION_2, 'notification-3']
+    [NOTIFICATION_ID, SECOND_NOTIFICATION_ID, 'notification-3']
   )
 })
 
@@ -306,12 +306,12 @@ test('serializes concurrent enqueue and flush operations without duplicate sends
   await Promise.all([
     postStoredBubblesDeliveryStatus({
       source: 'test',
-      notificationId: NOTIFICATION_1,
+      notificationId: NOTIFICATION_ID,
       status: 'received'
     }),
     postStoredBubblesDeliveryStatus({
       source: 'test',
-      notificationId: NOTIFICATION_2,
+      notificationId: SECOND_NOTIFICATION_ID,
       status: 'shown'
     }),
     flushStoredBubblesDeliveryStatuses(),
@@ -320,7 +320,7 @@ test('serializes concurrent enqueue and flush operations without duplicate sends
 
   assert.deepEqual(
     postDeliveryStatusCalls.map((call) => call.notificationId),
-    [NOTIFICATION_1, NOTIFICATION_2]
+    [NOTIFICATION_ID, SECOND_NOTIFICATION_ID]
   )
   assert.deepEqual(readStoredDeliveryStatusLedger().pendingEvents, [])
 })
@@ -328,7 +328,7 @@ test('serializes concurrent enqueue and flush operations without duplicate sends
 test('prevents concurrent flushes from posting the same queued event', async () => {
   await postStoredBubblesDeliveryStatus({
     source: 'test',
-    notificationId: NOTIFICATION_1,
+    notificationId: NOTIFICATION_ID,
     status: 'received'
   })
 
@@ -408,4 +408,20 @@ test('migration keeps one unposted click across legacy action keys', () => {
     })
   )
   assert.deepEqual(readStoredDeliveryStatusLedger().pendingEvents, [event])
+})
+
+test('scoped migration never flushes legacy or another device pending statuses', async () => {
+  const unscoped = { deviceId: null, apiBaseUrl: API_BASE_URL, appKey: 'key' }
+
+  await postStoredBubblesDeliveryStatus({ source: 'test', notificationId: 'legacy', storedDeviceState: unscoped })
+  const old = { ...unscoped, deviceId: 'old-device', registrationScope: 'scope', identityAcknowledged: false }
+
+  await postStoredBubblesDeliveryStatus({ source: 'test', notificationId: 'old-notification', storedDeviceState: old })
+  const canonical = { ...old, deviceId: 'canonical', identityAcknowledged: true }
+
+  await flushStoredBubblesDeliveryStatuses(canonical)
+  assert.equal(postDeliveryStatusCalls.length, 0)
+  await postStoredBubblesDeliveryStatus({ source: 'test', notificationId: 'current-notification', storedDeviceState: canonical })
+  assert.equal(postDeliveryStatusCalls.length, 1)
+  assert.equal(postDeliveryStatusCalls[0]?.deviceId, 'canonical')
 })

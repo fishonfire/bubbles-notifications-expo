@@ -238,3 +238,45 @@ Copyright (c) 2026, Fish on Fire.
 Source code is licensed under the [GNU General Public License v3.0](https://github.com/fishonfire/bubbles-notifications-expo/blob/develop/LICENSE).
 
 Published packages contain the compiled runtime, compiled config plugin, `app.plugin.js`, this README, the migration guide, and the license. Local `npm pack` archives are generated release artifacts and are not committed.
+
+## Migrating imported OneSignal devices
+
+Deploy the backend identity migration before upgrading this package. Every runtime registration now sends a persisted `installation_id` UUID independently of Firebase's `fid`, permissions, token rotation, and login changes. Registration first performs a POST reconciliation, validates the canonical response ID and accepted identities, and persists the binding before sending attributes or delivery statuses. Subsequent updates retain that canonical ID. Invalid identity responses and backend identity conflicts fail enrollment without an identity-free retry.
+
+For an app cohort imported from OneSignal, retain and initialize the original OneSignal SDK in the host app, and pass an adapter for its **push subscription ID** (the imported `player_id`). The package does not initialize or depend on OneSignal. Adapt these methods to the exact SDK version used by your host:
+
+```tsx
+import type { OneSignalMigrationBridge } from '@fishonfire/bubbles-expo';
+
+// Keep this adapter object stable (e.g. module scope or useMemo).
+const bridge: OneSignalMigrationBridge = {
+  getSubscriptionId: async () => readExistingPushSubscriptionId(),
+  subscribe: (listener) => observePushSubscriptionChanges(listener),
+};
+
+<BubblesNotificationsProvider
+  appId={42}
+  appKey={appKey}
+  apiBaseUrl={apiBaseUrl}
+  oneSignalMigration={{
+    policy: 'required',
+    oneSignalAppId: originalOneSignalAppId,
+    bridge,
+    readinessTimeoutMs: 3000,
+  }}
+>
+  <App />
+</BubblesNotificationsProvider>
+```
+
+The example host functions must read the existing push subscription and return an unsubscribe callback. Do not supply a OneSignal user ID, external user ID, Firebase token, or a new subscription created by resetting the original SDK. Verify the mapping against real Android/iOS exports.
+
+Continue calling `registerDevice({ userId })` after authentication. Required migration waits up to the configured timeout (0–30000 ms); a missing ID rejects with `BubblesMigrationPendingError` and remains pending. Subscription readiness, foreground activation, and token refresh retry the last enrollment. No backend create occurs while legacy identity is unresolved. A captured ID survives network errors, and a valid acknowledged binding keeps working when the bridge is removed. The original accepted subscription is retained if OneSignal later reports a different subscription; the provider reports a reconciliation error.
+
+For known fresh installations and apps without imported devices, select `oneSignalMigration={{ policy: 'disabled' }}`. Omission keeps this disabled behavior for compatibility. The consuming app must classify its migration cohort deliberately: absence of Bubbles storage does not distinguish a fresh install from an imported device. Do not switch unresolved imported devices to disabled mode to bypass readiness.
+
+Bindings are scoped to normalized backend URL plus Bubbles app ID; app-key rotation retains the UUID and binding. Storage schema v1 and legacy device IDs remain readable, but require an initial canonical handshake. Corrupt registration metadata preserves the separate UUID. A corrupt UUID, or a missing UUID for an acknowledged binding, fails closed and requires explicit host/operator recovery. Resolve the original installation identity before removing its file; deleting it alone can create a new identity and requires controlled backend reconciliation.
+
+Native rebuilds are required for the new Expo Crypto dependency. Identity and metadata currently use the app document directory. The host must configure and validate backup exclusions for `bubbles-notifications-installation-id.txt`, `bubbles-notifications-expo-state.json`, their temporary/recovery files, and the delivery-status ledger on both platforms. This package does not currently apply native backup exclusions. Without a verified host backup policy, a device restore can clone an installation UUID; reinstall/new-device uniqueness is not guaranteed. Test upgrade, uninstall/reinstall, clear-data and cross-device backup/restore on real native builds before rollout.
+
+Pending delivery statuses retain their original scoped device binding. Historical unbound statuses and statuses belonging to a different canonical device remain queued until ledger expiry rather than being reassigned during migration. Backend/operator reconciliation must decide how to handle their history. Native end-to-end push delivery and cohort validation remain rollout checks; JavaScript unit tests do not establish those guarantees.

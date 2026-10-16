@@ -4,7 +4,7 @@ import { isPlainObject } from '../internal/validation'
 
 const STORED_DEVICE_STATE_FILE_NAME = 'bubbles-notifications-expo-state.json'
 const LEGACY_DEVICE_ID_FILE_NAME = 'device-id.txt'
-const STORED_DEVICE_STATE_VERSION = 1 as const
+const STORED_DEVICE_STATE_VERSION = 2 as const
 const EMPTY_STORED_DEVICE_STATE: StoredDeviceState = {
   deviceId: null,
   apiBaseUrl: null,
@@ -15,6 +15,11 @@ export interface StoredDeviceState {
   deviceId: string | null;
   apiBaseUrl: string | null;
   appKey: string | null;
+  registrationScope?: string;
+  identityAcknowledged?: boolean;
+  oneSignalSubscriptionId?: string;
+  oneSignalAppId?: string;
+  acknowledgedInstallationId?: string;
 }
 
 export type StoredDeviceStateUpdate = Partial<StoredDeviceState>;
@@ -24,6 +29,11 @@ type PersistedStoredDeviceState = {
   deviceId?: string;
   apiBaseUrl?: string;
   appKey?: string;
+  registrationScope?: string;
+  identityAcknowledged?: boolean;
+  oneSignalSubscriptionId?: string;
+  oneSignalAppId?: string;
+  acknowledgedInstallationId?: string;
 };
 
 type StoredDeviceStateUpdater = (
@@ -63,7 +73,11 @@ function normalizeStoredDeviceState (
   return {
     deviceId: getOptionalNonEmptyString(value.deviceId, 'deviceId'),
     apiBaseUrl: getOptionalNonEmptyString(value.apiBaseUrl, 'apiBaseUrl'),
-    appKey: getOptionalNonEmptyString(value.appKey, 'appKey')
+    appKey: getOptionalNonEmptyString(value.appKey, 'appKey'),
+    ...Object.fromEntries(['registrationScope', 'oneSignalSubscriptionId', 'oneSignalAppId', 'acknowledgedInstallationId']
+      .filter((key) => typeof value[key] === 'string' && (value[key] as string).trim())
+      .map((key) => [key, (value[key] as string).trim()])),
+    ...(typeof value.identityAcknowledged === 'boolean' ? { identityAcknowledged: value.identityAcknowledged } : {})
   }
 }
 
@@ -91,6 +105,16 @@ function normalizeStoredDeviceStateUpdate (
     nextState.appKey = getOptionalNonEmptyString(value.appKey, 'appKey')
   }
 
+  for (const key of ['registrationScope', 'oneSignalSubscriptionId', 'oneSignalAppId', 'acknowledgedInstallationId'] as const) {
+    if (key in value) {
+      nextState[key] = getOptionalNonEmptyString(value[key], key) ?? undefined
+    }
+  }
+  if ('identityAcknowledged' in value) {
+    if (typeof value.identityAcknowledged !== 'boolean') failWithBubblesError('Stored identity acknowledgement must be boolean.')
+    nextState.identityAcknowledged = value.identityAcknowledged
+  }
+
   return nextState
 }
 
@@ -111,6 +135,10 @@ function serializeStoredDeviceState (
 
   if (state.appKey) {
     serializedState.appKey = state.appKey
+  }
+
+  for (const key of ['registrationScope', 'oneSignalSubscriptionId', 'oneSignalAppId', 'acknowledgedInstallationId', 'identityAcknowledged'] as const) {
+    if (state[key] !== undefined) Object.assign(serializedState, { [key]: state[key] })
   }
 
   return serializedState
@@ -149,7 +177,7 @@ function parseStoredDeviceState (rawState: string, uri: string) {
     )
   }
 
-  if (parsedState.version !== STORED_DEVICE_STATE_VERSION) {
+  if (parsedState.version !== 1 && parsedState.version !== STORED_DEVICE_STATE_VERSION) {
     failWithBubblesError(
       `Stored device state in "${uri}" uses unsupported schema version "${String(
         parsedState.version
@@ -459,4 +487,52 @@ export async function storeAppKeyAsync (
   appKey: string | null
 ): Promise<StoredDeviceState> {
   return patchStoredDeviceStateAsync({ appKey })
+}
+
+/** Scope includes the backend base path and app, but deliberately excludes rotating credentials. */
+export function getRegistrationScope (apiBaseUrl: string, appId: string | number): string {
+  const url = new URL(apiBaseUrl.trim())
+
+  url.search = ''
+  url.hash = ''
+
+  return JSON.stringify([url.toString().replace(/\/+$/, ''), String(appId).trim()])
+}
+
+export async function prepareRegistrationScope (apiBaseUrl: string, appId: string | number, appKey: string, isCurrent?: () => boolean): Promise<StoredDeviceState> {
+  const registrationScope = getRegistrationScope(apiBaseUrl, appId)
+
+  return updateState((state) => {
+    if (isCurrent && !isCurrent()) failWithBubblesError('Registration configuration changed.')
+
+    return state.registrationScope === registrationScope
+      ? { ...state, apiBaseUrl, appKey }
+      : { ...EMPTY_STORED_DEVICE_STATE, apiBaseUrl, appKey, registrationScope, identityAcknowledged: false }
+  })
+}
+
+export async function acknowledgeRegistrationScope (
+  registrationScope: string,
+  deviceId: string,
+  installationId: string,
+  oneSignalSubscriptionId?: string | null,
+  oneSignalAppId?: string,
+  isCurrent?: () => boolean
+): Promise<StoredDeviceState> {
+  return updateState((state) => {
+    if ((isCurrent && !isCurrent()) || state.registrationScope !== registrationScope) failWithBubblesError('Registration configuration changed before identity acknowledgement.')
+
+    return { ...state, deviceId, identityAcknowledged: true, acknowledgedInstallationId: installationId,
+      ...(oneSignalSubscriptionId ? { oneSignalSubscriptionId } : {}),
+      ...(oneSignalAppId ? { oneSignalAppId } : {}) }
+  })
+}
+
+export async function captureScopedSubscription (registrationScope: string, oneSignalSubscriptionId: string, oneSignalAppId: string, isCurrent?: () => boolean): Promise<void> {
+  await updateState((state) => {
+    if ((isCurrent && !isCurrent()) || state.registrationScope !== registrationScope) failWithBubblesError('Registration configuration changed while waiting for OneSignal.')
+    if (state.oneSignalSubscriptionId && state.oneSignalSubscriptionId !== oneSignalSubscriptionId) failWithBubblesError('OneSignal subscription changed; identity requires reconciliation.')
+
+    return { ...state, oneSignalSubscriptionId, oneSignalAppId, identityAcknowledged: false }
+  })
 }

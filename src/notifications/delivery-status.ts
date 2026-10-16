@@ -41,6 +41,16 @@ function warnMissingAppKey (source: string) {
   )
 }
 
+function bindEventToRegistrationScope (
+  event: StoredDeliveryStatusEvent,
+  storedDeviceState: StoredDeviceState
+): void {
+  if (storedDeviceState.registrationScope) {
+    event.registrationScope = storedDeviceState.registrationScope
+    if (storedDeviceState.deviceId) event.deviceId = storedDeviceState.deviceId
+  }
+}
+
 export async function postStoredBubblesDeliveryStatus (
   options: PostStoredBubblesDeliveryStatusOptions
 ): Promise<StoredDeviceState> {
@@ -58,6 +68,8 @@ export async function postStoredBubblesDeliveryStatus (
     error: options.error
   })
 
+  bindEventToRegistrationScope(event, storedDeviceState)
+
   await runDeliveryStatusLedgerServiceOperation(async () => {
     const ledger = await readStoredDeliveryStatusLedgerAsync()
 
@@ -73,7 +85,7 @@ export async function postStoredBubblesDeliveryStatus (
       })
     }
 
-    if (!deviceId) {
+    if (!deviceId || (storedDeviceState.registrationScope && !storedDeviceState.identityAcknowledged)) {
       return
     }
 
@@ -92,7 +104,8 @@ export async function postStoredBubblesDeliveryStatus (
     await flushStoredBubblesDeliveryStatusesInOperation({
       apiBaseUrl,
       appKey,
-      deviceId
+      deviceId,
+      registrationScope: storedDeviceState.registrationScope
     })
   })
 
@@ -141,7 +154,7 @@ export async function flushStoredBubblesDeliveryStatuses (
   storedDeviceState ??= await readStoredDeviceStateAsync()
   const { deviceId, apiBaseUrl, appKey } = storedDeviceState
 
-  if (!deviceId || !apiBaseUrl || !appKey) {
+  if (!deviceId || !apiBaseUrl || !appKey || (storedDeviceState.registrationScope && !storedDeviceState.identityAcknowledged)) {
     return storedDeviceState
   }
 
@@ -149,7 +162,8 @@ export async function flushStoredBubblesDeliveryStatuses (
     flushStoredBubblesDeliveryStatusesInOperation({
       deviceId,
       apiBaseUrl,
-      appKey
+      appKey,
+      registrationScope: storedDeviceState.registrationScope
     })
   )
 
@@ -161,12 +175,15 @@ async function flushStoredBubblesDeliveryStatusesInOperation (
     deviceId: string;
     apiBaseUrl: string;
     appKey: string;
+    registrationScope?: string;
   }
 ): Promise<void> {
   const { deviceId, apiBaseUrl, appKey } = storedDeviceState
   let ledger = await readStoredDeliveryStatusLedgerAsync()
 
   for (const event of ledger.pendingEvents) {
+    // Historical and unbound legacy events cannot be attributed to a newly reconciled device.
+    if (storedDeviceState.registrationScope && (event.registrationScope !== storedDeviceState.registrationScope || event.deviceId !== deviceId)) continue
     await postStoredDeliveryStatusEvent(apiBaseUrl, appKey, deviceId, event)
     const postedEventKeys = ledger.postedEventKeys.includes(event.key)
       ? ledger.postedEventKeys

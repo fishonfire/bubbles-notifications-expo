@@ -1,3 +1,4 @@
+import { resolveRegistrationIdentity, type OneSignalMigration } from './migration'
 import type { RegisterDeviceOptions } from './context'
 import type { PermissionRequestOptions } from './presentation'
 import {
@@ -12,6 +13,8 @@ type DeviceRegistrationOptions = Pick<
 >;
 
 export interface RegisterBubblesDeviceOptions {
+  oneSignalMigration?: OneSignalMigration;
+  isCurrent?: () => boolean;
   appId: string | number;
   appKey: string;
   apiBaseUrl: string;
@@ -26,9 +29,9 @@ export interface RegisterBubblesDeviceOptions {
 
 export interface RegisterBubblesDeviceResult
   extends SyncBubblesNotificationsDeviceResult {
-  registrationState: Awaited<
-    ReturnType<typeof getBubblesDeviceRegistrationState>
-  >;
+  registrationState: Awaited<ReturnType<typeof getBubblesDeviceRegistrationState>> & {
+    installationId?: string; oneSignalSubscriptionId?: string | null; registrationScope?: string;
+  };
 }
 
 export interface MaintainBubblesDeviceOptions
@@ -86,10 +89,17 @@ export async function registerBubblesDevice (
     syncOptions.deviceId === null && loadDeviceId
       ? loadDeviceId()
       : Promise.resolve(syncOptions.deviceId)
-  const [registrationState, deviceId] = await Promise.all([
+  const [tokenState] = await Promise.all([
     registrationStatePromise,
     deviceIdPromise
   ])
+
+  const identity = await resolveRegistrationIdentity(options)
+
+  if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+  const deviceId = identity.deviceId
+  const registrationState = { ...tokenState, installationId: identity.installationId,
+    oneSignalSubscriptionId: identity.oneSignalSubscriptionId, registrationScope: identity.registrationScope }
 
   if (deviceId !== null && previousRegistrationState &&
       areRegistrationStatesEqual(previousRegistrationState, registrationState)) {
@@ -108,6 +118,7 @@ export async function registerBubblesDevice (
   const result = await syncDeviceRegistrationState({
     ...syncOptions,
     deviceId,
+    registrationIdentity: identity,
     registrationState,
     deferPostRegistrationWork: true
   })
@@ -139,6 +150,9 @@ function areRegistrationStatesEqual (
   right: RegisterBubblesDeviceResult['registrationState']
 ): boolean {
   return (
+    left.installationId === right.installationId &&
+    left.oneSignalSubscriptionId === right.oneSignalSubscriptionId &&
+    left.registrationScope === right.registrationScope &&
     left.platform === right.platform &&
     left.tokenType === right.tokenType &&
     left.token === right.token &&
@@ -151,12 +165,15 @@ function areRegistrationStatesEqual (
 export async function maintainBubblesDevice (
   options: MaintainBubblesDeviceOptions
 ): Promise<MaintainBubblesDeviceResult> {
-  const registrationState = await getBubblesDeviceRegistrationState({
-    requestPermissions: false
-  })
+  const tokenState = await getBubblesDeviceRegistrationState({ requestPermissions: false })
+  const identity = await resolveRegistrationIdentity(options)
+
+  if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+  const registrationState = { ...tokenState, installationId: identity.installationId,
+    oneSignalSubscriptionId: identity.oneSignalSubscriptionId, registrationScope: identity.registrationScope }
 
   if (
-    areRegistrationStatesEqual(
+    identity.deviceId !== null && areRegistrationStatesEqual(
       options.previousRegistrationState,
       registrationState
     )
@@ -169,6 +186,8 @@ export async function maintainBubblesDevice (
 
   const syncResult = await syncDeviceRegistrationState({
     ...options,
+    deviceId: identity.deviceId,
+    registrationIdentity: identity,
     registrationState,
     deferPostRegistrationWork: true
   })

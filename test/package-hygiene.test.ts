@@ -24,7 +24,6 @@ test('package metadata, documentation, and release contents use GPL-3.0-only', (
     'plugin/build',
     'app.plugin.js',
     'README.md',
-    'MIGRATION.md',
     'LICENSE'
   ])
   assert.match(gitignore, /^\*\.tgz$/m)

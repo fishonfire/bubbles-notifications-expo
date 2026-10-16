@@ -6,7 +6,7 @@ import type { DeviceRegistrationState } from '../../src/runtime/tokens.ts'
 const API_BASE_URL = 'https://api.example.com'
 
 const CREATED_DEVICE_ID = 'created-device-id'
-const APPLICATION_ID = 'com.example.app'
+const APP_BUNDLE_ID = 'com.example.app'
 const FCM_TOKEN = 'fcm-token-123'
 const PADDED_API_BASE_URL = ` ${API_BASE_URL} `
 const EXISTING_DEVICE_ID = 'existing-device-id'
@@ -43,7 +43,7 @@ const attributeCollectionState: {
       deviceType: 'phone'
     },
     app: {
-      applicationId: APPLICATION_ID
+      applicationId: APP_BUNDLE_ID
     }
   })
 }
@@ -64,6 +64,15 @@ const tokenState: {
     notificationsEnabled: true
   }
 }
+
+vi.doMock('../../src/runtime/migration.ts', () => ({
+  resolveRegistrationIdentity: async (options: { deviceId: string | null; apiBaseUrl: string; appKey: string }) => {
+    storedApiBaseUrls.push(options.apiBaseUrl)
+    storedAppKeys.push(options.appKey)
+
+    return { deviceId: options.deviceId }
+  }
+}))
 
 vi.doMock('../../src/api/device-client.ts', () => ({
   syncBubblesDevice: async (options: Record<string, unknown>) => {
@@ -116,7 +125,7 @@ vi.doMock('../../src/storage/device-state.ts', () => ({
       appKey: storedAppKeys[storedAppKeys.length - 1] ?? null
     }
   },
-  storeDeviceIdAsync: async (value: string | null) => {
+  acknowledgeRegistrationScope: async (_scope: string, value: string | null) => {
     storedDeviceIds.push(value)
 
     return {
@@ -153,7 +162,7 @@ beforeEach(() => {
       deviceType: 'phone'
     },
     app: {
-      applicationId: APPLICATION_ID
+      applicationId: APP_BUNDLE_ID
     }
   })
   attributeState.implementation = async () => undefined
@@ -200,7 +209,7 @@ test('syncDeviceRegistrationState stores base URL, sends FCM token with FID, and
           deviceType: 'phone'
         },
         app: {
-          applicationId: APPLICATION_ID
+          applicationId: APP_BUNDLE_ID
         }
       }
     }
@@ -214,6 +223,8 @@ test('syncDeviceRegistrationState stores base URL, sends FCM token with FID, and
       aliasing: ['alpha'],
       appVersion: '1.0.0',
       deviceId: null,
+      installationId: undefined,
+      oneSignalSubscriptionId: undefined,
       platform: 'android',
       pushToken: FCM_TOKEN,
       fid: 'fid-123',
@@ -295,7 +306,7 @@ test('syncDeviceRegistrationState skips installation-id lookup when notification
           deviceType: 'phone'
         },
         app: {
-          applicationId: APPLICATION_ID
+          applicationId: APP_BUNDLE_ID
         }
       }
     }
@@ -350,9 +361,7 @@ test('syncDeviceRegistrationState wraps sync failures with a snapshot-rich error
 
 test('syncDeviceRegistrationState reports attribute collection failures after registration succeeds', async () => {
   const attributeError = new Error('attribute collection failed')
-  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {
-    // Silence expected error logging while asserting the failure behavior.
-  })
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
   attributeCollectionState.implementation = async () => {
     throw attributeError
@@ -388,9 +397,7 @@ test('syncDeviceRegistrationState reports attribute collection failures after re
 
 test('syncDeviceRegistrationState reports attribute update failures after registration succeeds', async () => {
   const attributeError = new Error('attribute update failed')
-  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {
-    // Silence expected error logging while asserting the failure behavior.
-  })
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
   attributeState.implementation = async () => {
     throw attributeError
@@ -426,9 +433,7 @@ test('syncDeviceRegistrationState reports attribute update failures after regist
 
 test('syncDeviceRegistrationState keeps registration successful when delivery-status flush fails', async () => {
   deliveryStatusFlushError = new Error('delivery status unavailable')
-  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {
-    // Silence expected error logging while asserting the failure behavior.
-  })
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
   const result = await syncDeviceRegistrationState({
     appId: 'app-delivery-status',

@@ -5,7 +5,7 @@ import type { DeviceRegistrationState } from '../../src/runtime/tokens.ts'
 
 const APP_KEY = 'app-key-123'
 const API_BASE_URL = 'https://api.example.com'
-const EXISTING_DEVICE = 'existing-device'
+const EXISTING_DEVICE_ID = 'existing-device'
 
 const registrationStateCalls: Record<string, unknown>[] = []
 const syncCalls: Record<string, unknown>[] = []
@@ -29,6 +29,12 @@ function createDeferred<Value> () {
     resolve: resolvePromise
   }
 }
+
+vi.doMock('../../src/runtime/migration.ts', () => ({
+  resolveRegistrationIdentity: async (options: { deviceId: string | null; loadDeviceId?: () => Promise<string | null> }) => ({
+    deviceId: options.deviceId ?? await options.loadDeviceId?.() ?? null
+  })
+}))
 
 vi.doMock('../../src/runtime/transport.ts', () => ({
   getBubblesDeviceRegistrationState: async (
@@ -93,7 +99,7 @@ test('registerBubblesDevice creates with current denied permission state without
       permissionRequestOptions: undefined
     }
   ])
-  assert.equal(syncCalls[0]?.registrationState, registrationState)
+  assert.deepEqual(syncCalls[0]?.registrationState, { ...registrationState, installationId: undefined, oneSignalSubscriptionId: undefined, registrationScope: undefined })
   assert.equal(syncCalls[0]?.deviceId, null)
   assert.equal(result.action, 'created')
 })
@@ -160,7 +166,7 @@ test('syncExistingBubblesDevice delegates updates to the non-prompting registrat
     appKey: APP_KEY,
     apiBaseUrl: API_BASE_URL,
     userId: 'user-123',
-    deviceId: EXISTING_DEVICE
+    deviceId: EXISTING_DEVICE_ID
   })
 
   assert.deepEqual(registrationStateCalls, [
@@ -169,7 +175,7 @@ test('syncExistingBubblesDevice delegates updates to the non-prompting registrat
       permissionRequestOptions: undefined
     }
   ])
-  assert.equal(syncCalls[0]?.deviceId, EXISTING_DEVICE)
+  assert.equal(syncCalls[0]?.deviceId, EXISTING_DEVICE_ID)
   assert.equal(result.action, 'updated')
 })
 
@@ -179,7 +185,7 @@ test('maintainBubblesDevice skips unchanged registration state without prompting
     appKey: APP_KEY,
     apiBaseUrl: API_BASE_URL,
     userId: 'user-123',
-    deviceId: EXISTING_DEVICE,
+    deviceId: EXISTING_DEVICE_ID,
     previousRegistrationState: registrationState
   })
 
@@ -209,7 +215,7 @@ test('maintainBubblesDevice updates once when token or permission state changes'
     userId: 'user-123',
     aliasing: ['primary'],
     appVersion: '1.0.0',
-    deviceId: EXISTING_DEVICE,
+    deviceId: EXISTING_DEVICE_ID,
     previousRegistrationState
   })
 
@@ -217,22 +223,22 @@ test('maintainBubblesDevice updates once when token or permission state changes'
     { requestPermissions: false }
   ])
   assert.equal(syncCalls.length, 1)
-  assert.equal(syncCalls[0]?.registrationState, registrationState)
-  assert.equal(syncCalls[0]?.deviceId, EXISTING_DEVICE)
+  assert.deepEqual(syncCalls[0]?.registrationState, { ...registrationState, installationId: undefined, oneSignalSubscriptionId: undefined, registrationScope: undefined })
+  assert.equal(syncCalls[0]?.deviceId, EXISTING_DEVICE_ID)
   assert.equal(result.syncResult?.action, 'updated')
 })
 
 test('registerBubblesDevice rechecks state but skips backend enrollment for an unchanged session', async () => {
   const result = await registerBubblesDevice({
     appId: 'app-123', appKey: APP_KEY, apiBaseUrl: API_BASE_URL,
-    userId: 'user-123', deviceId: EXISTING_DEVICE,
+    userId: 'user-123', deviceId: EXISTING_DEVICE_ID,
     previousRegistrationState: { ...registrationState }
   })
 
   assert.equal(registrationStateCalls.length, 1)
   assert.equal(syncCalls.length, 0)
   assert.equal(result.action, 'unchanged')
-  assert.equal(result.deviceId, EXISTING_DEVICE)
+  assert.equal(result.deviceId, EXISTING_DEVICE_ID)
 })
 
 test('registerBubblesDevice syncs permission and token changes despite an existing session', async () => {
@@ -244,7 +250,7 @@ test('registerBubblesDevice syncs permission and token changes despite an existi
   }
   const options = {
     appId: 'app-123', appKey: APP_KEY, apiBaseUrl: API_BASE_URL,
-    userId: 'user-123', deviceId: EXISTING_DEVICE, previousRegistrationState
+    userId: 'user-123', deviceId: EXISTING_DEVICE_ID, previousRegistrationState
   }
 
   await registerBubblesDevice(options)
