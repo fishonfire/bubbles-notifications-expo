@@ -15,12 +15,12 @@ type MockNotification = {
       data: Record<string, unknown>;
     };
   };
-};
+}
 
 type MockNotificationResponse = {
   actionIdentifier: string;
   notification: MockNotification;
-};
+}
 
 const notificationSubscriptions = {
   listener: null as null | ((response: MockNotificationResponse) => void),

@@ -11,7 +11,7 @@ type MockPermissions = {
   ios?: {
     status?: number;
   };
-};
+}
 
 const platform = {
   OS: 'android'

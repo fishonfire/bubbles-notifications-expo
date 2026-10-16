@@ -7,7 +7,7 @@ agent:
     os_image: ubuntu2404
   containers:
     - name: main
-      image: registry.semaphoreci.com/node:20
+      image: registry.semaphoreci.com/node:22
 
 fail_fast:
   stop:

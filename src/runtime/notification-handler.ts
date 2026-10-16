@@ -9,7 +9,7 @@ const DEFAULT_FOREGROUND_PRESENTATION = {
   shouldSetBadge: false
 } as const satisfies Required<ForegroundPresentationOptions>
 
-type NotificationHandlerOwner = object;
+type NotificationHandlerOwner = object
 
 let activeOwner: NotificationHandlerOwner | null = null
 let currentPresentationOptions: ForegroundPresentationOptions | undefined

@@ -22,7 +22,7 @@ type ModConfig = {
       }[];
     };
   };
-};
+}
 let registrationMod!: (config: ModConfig) => Promise<ModConfig>
 let manifestMod!: (config: ModConfig) => ModConfig
 

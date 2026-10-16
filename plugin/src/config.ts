@@ -11,7 +11,7 @@ export type BubblesNotificationsExpoPluginConfig = {
   androidNotificationColor?: string;
   enableBackgroundRemoteNotifications?: boolean;
   enableFirebaseInstallationPushRegistration?: boolean;
-};
+}
 
 export type NormalizedBubblesNotificationsExpoPluginConfig = {
   defaultChannelId: string;
@@ -21,7 +21,7 @@ export type NormalizedBubblesNotificationsExpoPluginConfig = {
   androidNotificationColor?: string;
   enableBackgroundRemoteNotifications: boolean;
   enableFirebaseInstallationPushRegistration: boolean;
-};
+}
 
 function fail (message: string): never {
   throw new Error(`[@fishonfire/bubbles-expo] ${message}`)
