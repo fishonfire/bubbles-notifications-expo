@@ -462,6 +462,9 @@ const jsxRuntime = {
 vi.doMock('react/jsx-runtime', () => jsxRuntime);
 vi.doMock('react/jsx-dev-runtime', () => jsxRuntime);
 
+vi.doMock('../../src/storage/installation-id.ts', () => ({ getOrCreateInstallationId: async () => 'uuid' }));
+vi.doMock('../../src/runtime/migration.ts', () => ({ normalizeSubscriptionId: (id: string | null) => id?.trim() || null }));
+
 vi.doMock('react-native', () => ({
   AppState: {
     get currentState() {
@@ -485,6 +488,10 @@ vi.doMock('react-native', () => ({
 
 vi.doMock('../../src/storage/device-state.ts', () => ({
   readStoredDeviceIdAsync: async () => storedState.deviceId,
+  prepareRegistrationScope: async (apiBaseUrl: string, _appId: string, appKey: string) => {
+    apiBaseUrlCalls.push(apiBaseUrl); appKeyCalls.push(appKey);
+    return { deviceId: storedState.deviceId, apiBaseUrl, appKey, identityAcknowledged: true, acknowledgedInstallationId: 'uuid' };
+  },
   patchStoredDeviceStateAsync: async (
     value: {
       apiBaseUrl?: string | null;
@@ -509,12 +516,15 @@ vi.doMock('../../src/storage/device-state.ts', () => ({
 
 vi.doMock('../../src/runtime/register-device.ts', () => ({
   maintainBubblesDevice: async (options: Record<string, unknown>) => {
-    maintenanceCalls.push(options);
+    const recorded = { ...options }; delete recorded.isCurrent; delete recorded.oneSignalMigration;
+    maintenanceCalls.push(recorded);
     return maintenanceState.implementation(options);
   },
   registerBubblesDevice: async (options: Record<string, unknown>) => {
     const recordedOptions = { ...options };
     delete recordedOptions.loadDeviceId;
+    delete recordedOptions.isCurrent;
+    delete recordedOptions.oneSignalMigration;
     registerCalls.push(recordedOptions);
     return registerState.implementation(options);
   },
@@ -772,6 +782,8 @@ test('BubblesNotificationsProvider flushes stored delivery statuses during start
       deviceId: 'stored-device',
       apiBaseUrl: 'https://api.example.com',
       appKey: 'app-key-123',
+      identityAcknowledged: true,
+      acknowledgedInstallationId: 'uuid',
     },
   ]);
 
@@ -787,7 +799,7 @@ test('BubblesNotificationsProvider flushes stored delivery statuses when the app
   await emitAppState('background');
   await emitAppState('active');
 
-  assert.deepEqual(deliveryStatusFlushCalls, [undefined]);
+  assert.deepEqual(deliveryStatusFlushCalls, []);
 
   renderer.unmount();
   assert.equal(appStateListeners.size, 0);
@@ -1165,6 +1177,7 @@ test('BubblesNotificationsProvider setDeviceAttributes posts custom attributes i
     userId: 'user-123',
   });
 
+  await getContextValue(renderer).registerDevice({ userId: 'user-123' });
   await getContextValue(renderer).setDeviceAttributes({
     plan: {
       tier: 'pro',
@@ -1178,7 +1191,7 @@ test('BubblesNotificationsProvider setDeviceAttributes posts custom attributes i
     {
       apiBaseUrl: 'https://api.example.com',
       appKey: 'app-key-123',
-      deviceId: 'stored-device',
+      deviceId: 'registered-device',
       attributes: {
         plan: {
           tier: 'pro',
@@ -1196,6 +1209,7 @@ test('BubblesNotificationsProvider setDeviceAttributes posts custom attributes i
 test('BubblesNotificationsProvider supports deprecated addDeviceAttribute calls', async () => {
   const renderer = await renderProvider();
 
+  await getContextValue(renderer).registerDevice({ userId: 'user-123' });
   await getContextValue(renderer).addDeviceAttribute('plan', 'pro');
   await renderer.flush();
 
@@ -1203,7 +1217,7 @@ test('BubblesNotificationsProvider supports deprecated addDeviceAttribute calls'
     {
       apiBaseUrl: 'https://api.example.com',
       appKey: 'app-key-123',
-      deviceId: 'stored-device',
+      deviceId: 'registered-device',
       attributes: {
         plan: 'pro',
       },
@@ -1544,4 +1558,22 @@ test('retained registration callback uses the committed provider configuration',
   await renderer.flush();
   assert.equal(registerCalls[0]?.appKey, 'replacement-app-key');
   renderer.unmount();
+});
+
+test('equivalent inline migration configuration retains enrollment and removes bridge observer', async () => {
+  const listeners = new Set<(id: string | null) => void>();
+  const bridge = { getSubscriptionId: async () => 'player', subscribe: (listener: (id: string | null) => void) => {
+    listeners.add(listener); return () => { listeners.delete(listener); };
+  } };
+  const migration = { policy: 'required' as const, oneSignalAppId: 'original', bridge };
+  const renderer = await renderProvider({ oneSignalMigration: migration });
+  await getContextValue(renderer).registerDevice({ userId: 'user' });
+  await renderer.flush();
+  await renderer.update(createProviderProps({ oneSignalMigration: { ...migration } }));
+  tokenRefreshListener?.('rotated');
+  await renderer.flush();
+  assert.equal(maintenanceCalls.length, 1);
+  assert.equal(listeners.size, 1);
+  renderer.unmount();
+  assert.equal(listeners.size, 0);
 });

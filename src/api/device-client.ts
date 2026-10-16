@@ -150,7 +150,31 @@ function isInvalidAppKeyResponse(error: unknown): boolean {
   );
 }
 
+export class BubblesDeviceIdentityError extends Error {
+  constructor(readonly code: 'identity_conflict' | 'identity_ambiguous' | 'invalid_identity_response', readonly cause?: unknown) {
+    super(`Bubbles device identity requires reconciliation: ${code}.`);
+    this.name = 'BubblesDeviceIdentityError';
+  }
+}
+
+function validateIdentityResponse(response: unknown, options: SyncBubblesDeviceOptions): string | null {
+  const id = extractDeviceIdFromDeviceResponse(response);
+  if (options.installationId) {
+    if (!id || !isPlainObject(response) || response.installation_id !== options.installationId ||
+      (options.oneSignalSubscriptionId && response.onesignal_subscription_id !== options.oneSignalSubscriptionId) ||
+      (options.deviceId !== null && id !== String(options.deviceId).trim())) {
+      throw new BubblesDeviceIdentityError('invalid_identity_response');
+    }
+  }
+  return id;
+}
+
 function throwAppAuthenticationError(error: unknown): never {
+  if (error && typeof error === 'object' && Reflect.get(error, 'status') === 409) {
+    const body = Reflect.get(error, 'body');
+    const code = body && typeof body === 'object' ? Reflect.get(body, 'error') : null;
+    if (code === 'identity_conflict' || code === 'identity_ambiguous') throw new BubblesDeviceIdentityError(code, error);
+  }
   if (isInvalidAppKeyResponse(error)) {
     throw new BubblesAppAuthenticationError(error);
   }
@@ -348,12 +372,15 @@ export async function syncBubblesDevice<TResponse = unknown>(
         withAppKeyHeader(options.appKey, options.updateRequestOptions),
       );
     } catch (error) {
+      if (options.installationId && error && typeof error === 'object' && Reflect.get(error, 'status') === 404) {
+        return syncBubblesDevice<TResponse>({ ...options, client, deviceId: null });
+      }
       throwAppAuthenticationError(error);
     }
 
     return {
       action: 'updated',
-      deviceId,
+      deviceId: validateIdentityResponse(response, options) ?? deviceId,
       response,
     };
   }
@@ -371,7 +398,7 @@ export async function syncBubblesDevice<TResponse = unknown>(
 
   return {
     action: 'created',
-    deviceId: extractDeviceIdFromDeviceResponse(response),
+    deviceId: validateIdentityResponse(response, options),
     response,
   };
 }

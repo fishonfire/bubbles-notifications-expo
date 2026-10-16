@@ -58,6 +58,11 @@ export async function postStoredBubblesDeliveryStatus(
     error: options.error,
   });
 
+  if (storedDeviceState.registrationScope) {
+    event.registrationScope = storedDeviceState.registrationScope;
+    if (deviceId) event.deviceId = deviceId;
+  }
+
   await runDeliveryStatusLedgerServiceOperation(async () => {
     const ledger = await readStoredDeliveryStatusLedgerAsync();
 
@@ -73,7 +78,7 @@ export async function postStoredBubblesDeliveryStatus(
       });
     }
 
-    if (!deviceId) {
+    if (!deviceId || (storedDeviceState.registrationScope && !storedDeviceState.identityAcknowledged)) {
       return;
     }
 
@@ -91,6 +96,7 @@ export async function postStoredBubblesDeliveryStatus(
       apiBaseUrl,
       appKey,
       deviceId,
+      registrationScope: storedDeviceState.registrationScope,
     });
   });
 
@@ -139,7 +145,7 @@ export async function flushStoredBubblesDeliveryStatuses(
   storedDeviceState ??= await readStoredDeviceStateAsync();
   const { deviceId, apiBaseUrl, appKey } = storedDeviceState;
 
-  if (!deviceId || !apiBaseUrl || !appKey) {
+  if (!deviceId || !apiBaseUrl || !appKey || (storedDeviceState.registrationScope && !storedDeviceState.identityAcknowledged)) {
     return storedDeviceState;
   }
 
@@ -148,6 +154,7 @@ export async function flushStoredBubblesDeliveryStatuses(
       deviceId,
       apiBaseUrl,
       appKey,
+      registrationScope: storedDeviceState.registrationScope,
     }),
   );
 
@@ -159,12 +166,15 @@ async function flushStoredBubblesDeliveryStatusesInOperation(
     deviceId: string;
     apiBaseUrl: string;
     appKey: string;
+    registrationScope?: string;
   },
 ): Promise<void> {
   const { deviceId, apiBaseUrl, appKey } = storedDeviceState;
   let ledger = await readStoredDeliveryStatusLedgerAsync();
 
   for (const event of ledger.pendingEvents) {
+    // Historical and unbound legacy events cannot be attributed to a newly reconciled device.
+    if (storedDeviceState.registrationScope && (event.registrationScope !== storedDeviceState.registrationScope || event.deviceId !== deviceId)) continue;
     await postStoredDeliveryStatusEvent(apiBaseUrl, appKey, deviceId, event);
     const postedEventKeys = ledger.postedEventKeys.includes(event.key)
       ? ledger.postedEventKeys

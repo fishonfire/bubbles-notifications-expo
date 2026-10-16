@@ -26,6 +26,12 @@ function createDeferred<Value>() {
   };
 }
 
+vi.doMock('../../src/runtime/migration.ts', () => ({
+  resolveRegistrationIdentity: async (options: { deviceId: string | null; loadDeviceId?: () => Promise<string | null> }) => ({
+    deviceId: options.deviceId ?? await options.loadDeviceId?.() ?? null,
+  }),
+}));
+
 vi.doMock('../../src/runtime/transport.ts', () => ({
   getBubblesDeviceRegistrationState: async (
     options: Record<string, unknown>,
@@ -87,7 +93,7 @@ test('registerBubblesDevice creates with current denied permission state without
       permissionRequestOptions: undefined,
     },
   ]);
-  assert.equal(syncCalls[0]?.registrationState, registrationState);
+  assert.deepEqual(syncCalls[0]?.registrationState, { ...registrationState, installationId: undefined, oneSignalSubscriptionId: undefined, registrationScope: undefined });
   assert.equal(syncCalls[0]?.deviceId, null);
   assert.equal(result.action, 'created');
 });
@@ -209,7 +215,7 @@ test('maintainBubblesDevice updates once when token or permission state changes'
     { requestPermissions: false },
   ]);
   assert.equal(syncCalls.length, 1);
-  assert.equal(syncCalls[0]?.registrationState, registrationState);
+  assert.deepEqual(syncCalls[0]?.registrationState, { ...registrationState, installationId: undefined, oneSignalSubscriptionId: undefined, registrationScope: undefined });
   assert.equal(syncCalls[0]?.deviceId, 'existing-device');
   assert.equal(result.syncResult?.action, 'updated');
 });

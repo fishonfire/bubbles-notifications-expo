@@ -1,10 +1,10 @@
+import { resolveRegistrationIdentity, type OneSignalMigration } from './migration';
 import {
   syncBubblesDevice,
   updateBubblesDeviceAttributes,
 } from '../api/device-client';
 import {
-  patchStoredDeviceStateAsync,
-  storeDeviceIdAsync,
+  acknowledgeRegistrationScope,
 } from '../storage/device-state';
 import { flushStoredBubblesDeliveryStatuses } from '../notifications/delivery-status';
 
@@ -15,6 +15,8 @@ import {
 import { collectBubblesDeviceAttributes } from './device-attributes';
 
 interface BaseSyncDeviceOptions {
+  oneSignalMigration?: OneSignalMigration;
+  isCurrent?: () => boolean;
   appId: string | number;
   appKey: string;
   apiBaseUrl: string;
@@ -26,6 +28,7 @@ interface BaseSyncDeviceOptions {
 export interface SyncDeviceRegistrationStateOptions
   extends BaseSyncDeviceOptions {
   deviceId: string | null;
+  registrationIdentity?: Awaited<ReturnType<typeof resolveRegistrationIdentity>>;
   registrationState: DeviceRegistrationState;
   deferPostRegistrationWork?: boolean;
 }
@@ -142,10 +145,6 @@ export async function syncDeviceRegistrationState(
 ): Promise<SyncBubblesNotificationsDeviceResult> {
   const apiBaseUrl = getRequiredNonEmptyString(options.apiBaseUrl, 'apiBaseUrl');
   const appKey = getRequiredNonEmptyString(options.appKey, 'appKey');
-  await patchStoredDeviceStateAsync({
-    apiBaseUrl,
-    appKey,
-  });
 
   const snapshot = buildRuntimeSnapshot(
     options.deviceId,
@@ -153,7 +152,9 @@ export async function syncDeviceRegistrationState(
   );
 
   try {
-    const installationId = options.registrationState.notificationsEnabled
+    const identity = options.registrationIdentity ?? await resolveRegistrationIdentity({ ...options, apiBaseUrl, appKey });
+    if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.');
+    const firebaseInstallationId = options.registrationState.notificationsEnabled
       ? options.registrationState.fid
       : null;
     const syncResult = await syncBubblesDevice({
@@ -163,15 +164,19 @@ export async function syncDeviceRegistrationState(
       userId: options.userId,
       aliasing: options.aliasing,
       appVersion: options.appVersion,
-      deviceId: options.deviceId,
+      deviceId: identity.deviceId,
+      installationId: identity.installationId,
+      oneSignalSubscriptionId: identity.oneSignalSubscriptionId,
       platform: options.registrationState.platform,
       pushToken: options.registrationState.token,
-      fid: installationId,
+      fid: firebaseInstallationId,
       notificationsEnabled: options.registrationState.notificationsEnabled,
     });
-    const nextDeviceId = syncResult.deviceId ?? options.deviceId;
-
-    const storedDeviceState = await storeDeviceIdAsync(nextDeviceId);
+    const nextDeviceId = syncResult.deviceId;
+    if (!nextDeviceId) throw new Error('Backend registration did not return a canonical device ID.');
+    if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.');
+    const storedDeviceState = await acknowledgeRegistrationScope(identity.registrationScope, nextDeviceId,
+      identity.installationId, identity.oneSignalSubscriptionId, identity.oneSignalAppId, options.isCurrent);
 
     let attributeSync: BubblesDeviceAttributeSyncResult = {
       status: 'skipped',

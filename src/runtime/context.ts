@@ -1,3 +1,4 @@
+import type { OneSignalMigration } from './migration';
 import { createContext, type ReactNode } from 'react';
 import type { Notification } from 'expo-notifications';
 
@@ -44,6 +45,7 @@ export interface BubblesNotificationResponseEvent {
 }
 
 export interface BubblesNotificationsProviderProps {
+  oneSignalMigration?: OneSignalMigration;
   appId: string | number;
   appKey: string;
   apiBaseUrl: string;
