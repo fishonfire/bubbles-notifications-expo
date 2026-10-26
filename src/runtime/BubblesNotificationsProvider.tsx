@@ -1,3 +1,4 @@
+import { markBubblesLogout, retryBubblesLogout } from './logout'
 import { getOrCreateInstallationId } from '../storage/installation-id'
 import { normalizeSubscriptionId, type OneSignalMigration } from './migration'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
@@ -160,6 +161,11 @@ export function BubblesNotificationsProvider (
   const foregroundPresentationOwnerRef = useRef({})
   const previousUserIdRef = useRef<string | null>(normalizedUserId)
   const enrolledSessionRef = useRef<EnrolledSession | null>(null)
+  const sessionSuspendedRef = useRef(true)
+  const desiredOperationRef = useRef(0)
+  const pendingEnrollmentOperationsRef = useRef(0)
+  const logoutRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const requestMaintenanceRef = useRef<() => void>(() => undefined)
   const enrollmentRequestVersionRef = useRef(0)
   const providerConfigurationVersionRef = useRef(0)
   const providerConfigurationRef = useRef<ProviderConfiguration>({
@@ -185,6 +191,7 @@ export function BubblesNotificationsProvider (
       providerConfigurationVersionRef.current += 1
       enrollmentRequestVersionRef.current += 1
       enrolledSessionRef.current = null
+      sessionSuspendedRef.current = true
       currentDeviceIdRef.current = null
       pendingEnrollmentRef.current = null
     }
@@ -197,7 +204,7 @@ export function BubblesNotificationsProvider (
       maintenanceRequestedRef.current = false
       const enrolledSession = enrolledSessionRef.current
 
-      if (enrolledSession === null) {
+      if (sessionSuspendedRef.current || enrolledSession === null) {
         break
       }
 
@@ -242,14 +249,44 @@ export function BubblesNotificationsProvider (
         }
     } while (maintenanceRequestedRef.current)
 
-    return runtimeStateUpdate
+    return sessionSuspendedRef.current && runtimeStateUpdate
+      ? { ...runtimeStateUpdate, notificationsEnabled: false }
+      : runtimeStateUpdate
   }
 
-  const requestMaintenance = useCallback(() => {
-    if (enrolledSessionRef.current === null) {
-      const pending = pendingEnrollmentRef.current
+  const clearLogoutRetry = useCallback(() => {
+    if (logoutRetryTimerRef.current !== null) {
+      clearTimeout(logoutRetryTimerRef.current)
+      logoutRetryTimerRef.current = null
+    }
+  }, [])
 
-      if (pending !== null) void registerDeviceRef.current?.(pending as RegisterDeviceOptions).catch(() => undefined)
+  const scheduleLogoutRetry = useCallback(() => {
+    if (!isMountedRef.current || appStateRef.current !== 'active' || logoutRetryTimerRef.current !== null) return
+    logoutRetryTimerRef.current = setTimeout(() => {
+      logoutRetryTimerRef.current = null
+      requestMaintenanceRef.current()
+    }, 15000)
+  }, [isMountedRef])
+
+  const requestMaintenance = useCallback(() => {
+    if (sessionSuspendedRef.current || enrolledSessionRef.current === null) {
+      if (maintenancePendingRef.current) return
+      maintenancePendingRef.current = true
+      void runRegistration(async () => {
+        await retryBubblesLogout(providerConfigurationRef.current)
+
+        if (sessionSuspendedRef.current) {
+          setState((current) => ({ ...current, notificationsEnabled: false }))
+        }
+      }).then(() => {
+        clearLogoutRetry()
+        const pending = pendingEnrollmentRef.current
+
+        if (pending !== null && pendingEnrollmentOperationsRef.current === 0) {
+          void registerDeviceRef.current?.(pending as RegisterDeviceOptions).catch(scheduleLogoutRetry)
+        }
+      }).catch(scheduleLogoutRetry).finally(() => { maintenancePendingRef.current = false })
 
       return
     }
@@ -273,15 +310,18 @@ export function BubblesNotificationsProvider (
           }
         })
     })
-  }, [runRegistration])
+  }, [runRegistration, clearLogoutRetry, scheduleLogoutRetry])
+
+  requestMaintenanceRef.current = requestMaintenance
 
   useEffect(() => {
     isMountedRef.current = true
 
     return () => {
       isMountedRef.current = false
+      clearLogoutRetry()
     }
-  }, [isMountedRef])
+  }, [isMountedRef, clearLogoutRetry])
 
   useEffect(() => acquireBubblesForegroundPresentation(
     foregroundPresentationOwnerRef.current
@@ -318,7 +358,7 @@ export function BubblesNotificationsProvider (
           permissionStatus:
             describeNotificationPermissionStatus(permissions),
           notificationsEnabled:
-            isNotificationPermissionGranted(permissions),
+            !sessionSuspendedRef.current && isNotificationPermissionGranted(permissions),
           error: null
         }))
 
@@ -334,6 +374,7 @@ export function BubblesNotificationsProvider (
             storedDeviceState
           )
         }
+        requestMaintenanceRef.current()
       } catch (error) {
         if (!isCancelled && isMountedRef.current) {
           setState((currentState) => ({
@@ -387,6 +428,7 @@ export function BubblesNotificationsProvider (
         const previousAppState = appStateRef.current
 
         appStateRef.current = nextAppState
+        if (nextAppState !== 'active') clearLogoutRetry()
 
         if (previousAppState !== 'active' && nextAppState === 'active') {
           if (enrolledSessionRef.current) void flushStoredDeliveryStatusesBestEffort(
@@ -400,7 +442,7 @@ export function BubblesNotificationsProvider (
     return () => {
       subscription.remove()
     }
-  }, [requestMaintenance])
+  }, [requestMaintenance, clearLogoutRetry])
 
   useEffect(() => observeBubblesNotificationOpenEvents({
     onNotificationResponse
@@ -434,27 +476,75 @@ export function BubblesNotificationsProvider (
 
   const registerDevice: RegisterDevice = (options?: RegisterDeviceOptions) => {
     const providerConfiguration = providerConfigurationRef.current
+    const operationId = ++desiredOperationRef.current
+    const providerConfigurationVersion = providerConfigurationVersionRef.current
 
+    sessionSuspendedRef.current = true
     pendingEnrollmentRef.current = options
-    const requestVersion = enrollmentRequestVersionRef.current + 1
-    const providerConfigurationVersion =
-      providerConfigurationVersionRef.current
+    pendingEnrollmentOperationsRef.current += 1
 
-    enrollmentRequestVersionRef.current = requestVersion
-    const previousSession = enrolledSessionRef.current
+    return runRegistration(async () => {
+      if (operationId !== desiredOperationRef.current ||
+          providerConfigurationVersion !== providerConfigurationVersionRef.current) return
+      pendingEnrollmentRef.current = options
+      await retryBubblesLogout(providerConfiguration)
+      if (operationId !== desiredOperationRef.current ||
+          providerConfigurationVersion !== providerConfigurationVersionRef.current) return
+      clearLogoutRetry()
+      const requestVersion = ++enrollmentRequestVersionRef.current
+      const previousSession = enrolledSessionRef.current
 
-    enrolledSessionRef.current = null
+      enrolledSessionRef.current = null
+      const result = await enrollDevice(options, previousSession, providerConfiguration,
+        requestVersion, providerConfigurationVersion)
 
-    return runRegistration(() => enrollDevice(
-      options,
-      previousSession,
-      providerConfiguration,
-      requestVersion,
-      providerConfigurationVersion
-    ))
+      if (operationId === desiredOperationRef.current &&
+          providerConfigurationVersion === providerConfigurationVersionRef.current &&
+          enrolledSessionRef.current !== null) {
+        sessionSuspendedRef.current = false
+      }
+
+      return sessionSuspendedRef.current && result ? { ...result, notificationsEnabled: false } : result
+    }).catch((error) => {
+      if (operationId === desiredOperationRef.current) scheduleLogoutRetry()
+      throw error
+    }).finally(() => { pendingEnrollmentOperationsRef.current -= 1 })
   }
 
   registerDeviceRef.current = registerDevice
+
+  function logout (): Promise<void> {
+    const configuration = providerConfigurationRef.current
+    const operationId = ++desiredOperationRef.current
+
+    sessionSuspendedRef.current = true
+    pendingEnrollmentRef.current = null
+    maintenanceRequestedRef.current = false
+    clearLogoutRetry()
+    setState((current) => ({ ...current, notificationsEnabled: false }))
+    // Persist intent now; let an in-flight first registration acknowledge its
+    // canonical identity before disabling that identity in the queued operation.
+    const marked = markBubblesLogout(configuration, currentDeviceIdRef.current)
+    // Observe rejection immediately while the registration queue is draining.
+    const markResult = marked.then(() => ({ error: null }), (error: unknown) => ({ error }))
+
+    return runRegistration(async () => {
+      enrollmentRequestVersionRef.current += 1
+      enrolledSessionRef.current = null
+      if (operationId === desiredOperationRef.current) pendingEnrollmentRef.current = null
+      maintenanceRequestedRef.current = false
+      const result = await markResult
+
+      if (result.error !== null) throw result.error
+      await retryBubblesLogout(configuration)
+      clearLogoutRetry()
+
+      setState((current) => ({ ...current, notificationsEnabled: false }))
+    }).catch((error) => {
+      scheduleLogoutRetry()
+      throw error
+    })
+  }
 
   function isCurrentEnrollmentRequest (
     requestVersion: number,
@@ -621,6 +711,7 @@ export function BubblesNotificationsProvider (
   }
 
   const contextValue = {
+    logout,
     registerDevice,
     setDeviceAttributes,
     addDeviceAttribute,

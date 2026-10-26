@@ -30,6 +30,7 @@ const OTHER_USER = 'other-user'
 type Cleanup = (() => void) | void;
 
 interface ProviderContextValue {
+  logout: () => Promise<void>;
   registerDevice: (
     options?: Record<string, unknown>,
   ) => Promise<void>;
@@ -429,6 +430,14 @@ class MockBubblesNotificationsSyncError extends Error {
   }
 }
 
+const markLogout = vi.fn(async (_configuration: unknown, _deviceId: string | null) => undefined)
+const retryLogout = vi.fn(async (_configuration: unknown) => undefined)
+
+vi.doMock('../../src/runtime/logout.ts', () => ({
+  markBubblesLogout: markLogout,
+  retryBubblesLogout: retryLogout
+}))
+
 vi.doMock('react', () => ({
   createContext (defaultValue: unknown) {
     return {
@@ -678,6 +687,8 @@ const { BubblesNotificationsProvider } = await import(
 )
 
 beforeEach(() => {
+  markLogout.mockReset().mockResolvedValue(undefined)
+  retryLogout.mockReset().mockResolvedValue(undefined)
   storedState.deviceId = STORED_DEVICE
   apiBaseUrlCalls.length = 0
   appKeyCalls.length = 0
@@ -732,6 +743,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.restoreAllMocks()
+  vi.useRealTimers()
 })
 
 function createProviderProps (
@@ -793,6 +805,7 @@ test('BubblesNotificationsProvider exposes only supported hook actions and state
     'addDeviceAttribute',
     'error',
     'isSyncing',
+    'logout',
     'notificationsEnabled',
     'registerDevice',
     'setDeviceAttributes'
@@ -1647,4 +1660,257 @@ test('equivalent inline migration configuration retains enrollment and removes b
   assert.equal(listeners.size, 1)
   renderer.unmount()
   assert.equal(listeners.size, 0)
+})
+
+test('logout durably marks before draining first enrollment and disables its canonical device', async () => {
+  storedState.deviceId = null
+  const renderer = await renderProvider()
+  const deferred = createDeferred<SyncResult>()
+  let registrationIsCurrent: (() => boolean) | undefined
+
+  registerState.implementation = async (options) => {
+    registrationIsCurrent = options.isCurrent as () => boolean
+    const result = await deferred.promise
+
+    assert.equal(registrationIsCurrent(), true)
+    storedState.deviceId = result.deviceId
+
+    return result
+  }
+  const registration = getContextValue(renderer).registerDevice({ userId: CURRENT_USER })
+
+  await flushMicrotasks()
+  const disableTargets: (string | null)[] = []
+
+  retryLogout.mockImplementation(async () => { disableTargets.push(storedState.deviceId) })
+  const logout = getContextValue(renderer).logout()
+
+  assert.equal(markLogout.mock.calls.length, 1)
+  assert.equal(markLogout.mock.calls[0]?.[1], null)
+  assert.equal(registrationIsCurrent?.(), true)
+  await renderer.flush()
+  assert.equal(getContextValue(renderer).notificationsEnabled, false)
+  await emitTokenRefresh()
+  assert.equal(maintenanceCalls.length, 0)
+  assert.deepEqual(disableTargets, [])
+  deferred.resolve({
+    action: 'created', deviceId: REGISTERED_DEVICE, pushToken: PUSH_TOKEN,
+    tokenType: 'fcm', permissionStatus: 'granted', notificationsEnabled: true,
+    registrationState: grantedRegistrationState
+  })
+  await registration
+  await logout
+  await renderer.flush()
+  assert.equal(disableTargets[0], REGISTERED_DEVICE)
+  assert.equal(registrationIsCurrent?.(), false)
+  assert.equal(getContextValue(renderer).notificationsEnabled, false)
+  await emitAppState('background')
+  await emitAppState('active')
+  await renderer.flush()
+  assert.equal(maintenanceCalls.length, 0)
+  assert.equal(registerCalls.length, 1)
+  renderer.unmount()
+})
+
+test('register A in flight, queued B, logout, and register C preserve identity and queue order', async () => {
+  const renderer = await renderProvider()
+  const deferred = createDeferred<SyncResult>()
+  const events: string[] = []
+
+  registerState.implementation = async (options) => {
+    const user = options.userId as string
+
+    events.push(user)
+    if (user === 'A') {
+      const result = await deferred.promise
+
+      assert.equal((options.isCurrent as () => boolean)(), true)
+      events.push('A acknowledged')
+
+      return result
+    }
+
+    return {
+      action: 'updated', deviceId: REGISTERED_DEVICE, pushToken: PUSH_TOKEN,
+      tokenType: 'fcm', permissionStatus: 'granted', notificationsEnabled: true,
+      registrationState: grantedRegistrationState
+    }
+  }
+  const first = getContextValue(renderer).registerDevice({ userId: 'A' })
+
+  await flushMicrotasks()
+  const second = getContextValue(renderer).registerDevice({ userId: 'B' })
+  const logout = getContextValue(renderer).logout()
+  const third = getContextValue(renderer).registerDevice({ userId: 'C' })
+
+  retryLogout.mockImplementation(async () => { events.push('retry disable') })
+  deferred.resolve({
+    action: 'created', deviceId: REGISTERED_DEVICE, pushToken: PUSH_TOKEN,
+    tokenType: 'fcm', permissionStatus: 'granted', notificationsEnabled: true,
+    registrationState: grantedRegistrationState
+  })
+  await Promise.all([first, second, logout, third])
+  await renderer.flush()
+  assert.deepEqual(registerCalls.map((options) => options.userId), ['A', 'C'])
+  assert.deepEqual(events.slice(0, 3), ['A', 'A acknowledged', 'retry disable'])
+  assert.equal(events[events.length - 1], 'C')
+  assert.equal(getContextValue(renderer).notificationsEnabled, true)
+  await emitTokenRefresh()
+  await renderer.flush()
+  assert.equal(maintenanceCalls[0]?.userId, 'C')
+  renderer.unmount()
+})
+
+test('same-user login after logout registers again without session-state deduplication', async () => {
+  const renderer = await renderProvider()
+
+  await getContextValue(renderer).registerDevice({ userId: CURRENT_USER })
+  await getContextValue(renderer).logout()
+  await getContextValue(renderer).registerDevice({ userId: CURRENT_USER })
+  await renderer.flush()
+  assert.equal(registerCalls.length, 2)
+  assert.equal(registerCalls[1]?.previousRegistrationState, undefined)
+  assert.equal(getContextValue(renderer).notificationsEnabled, true)
+  renderer.unmount()
+})
+
+test('failed logout retries while active and stops its timer in background and on unmount', async () => {
+  vi.useFakeTimers()
+  const renderer = await renderProvider()
+
+  await getContextValue(renderer).registerDevice({ userId: CURRENT_USER })
+  retryLogout.mockRejectedValue(new Error('offline'))
+  await assert.rejects(getContextValue(renderer).logout(), /offline/)
+  await renderer.flush()
+  assert.equal(getContextValue(renderer).notificationsEnabled, false)
+  assert.equal(vi.getTimerCount(), 1)
+  const calls = retryLogout.mock.calls.length
+
+  await vi.advanceTimersByTimeAsync(15000)
+  await renderer.flush()
+  assert.equal(retryLogout.mock.calls.length, calls + 1)
+  assert.equal(vi.getTimerCount(), 1)
+  assert.equal(maintenanceCalls.length, 0)
+  await emitAppState('background')
+  assert.equal(vi.getTimerCount(), 0)
+  await emitAppState('active')
+  await renderer.flush()
+  assert.equal(vi.getTimerCount(), 1)
+  renderer.unmount()
+  assert.equal(vi.getTimerCount(), 0)
+})
+
+test('relogin cannot enroll until a pending logout succeeds and lifecycle retry resumes that login', async () => {
+  vi.useFakeTimers()
+  const renderer = await renderProvider()
+
+  await getContextValue(renderer).registerDevice({ userId: CURRENT_USER })
+  retryLogout.mockRejectedValue(new Error('offline'))
+  await assert.rejects(getContextValue(renderer).logout(), /offline/)
+  await assert.rejects(getContextValue(renderer).registerDevice({ userId: OTHER_USER }), /offline/)
+  await renderer.flush()
+  assert.equal(registerCalls.length, 1)
+  retryLogout.mockResolvedValue(undefined)
+  await vi.advanceTimersByTimeAsync(15000)
+  await renderer.flush()
+  assert.equal(registerCalls.length, 2)
+  assert.equal(registerCalls[1]?.userId, OTHER_USER)
+  assert.equal(getContextValue(renderer).notificationsEnabled, true)
+  assert.equal(vi.getTimerCount(), 0)
+  renderer.unmount()
+})
+
+test('logout drains token-refresh maintenance before disabling and never re-enables while signed out', async () => {
+  const renderer = await renderProvider()
+
+  await getContextValue(renderer).registerDevice({ userId: CURRENT_USER })
+  const deferred = createDeferred<Awaited<ReturnType<typeof maintenanceState.implementation>>>()
+
+  maintenanceState.implementation = async () => deferred.promise
+  await emitTokenRefresh()
+  assert.equal(maintenanceCalls.length, 1)
+  retryLogout.mockClear()
+  const logout = getContextValue(renderer).logout()
+
+  await emitTokenRefresh()
+  assert.equal(retryLogout.mock.calls.length, 0)
+  deferred.resolve({ registrationState: grantedRegistrationState, syncResult: null })
+  await logout
+  await renderer.flush()
+  assert.equal(retryLogout.mock.calls.length, 1)
+  await emitTokenRefresh()
+  await renderer.flush()
+  assert.equal(maintenanceCalls.length, 1)
+  assert.equal(getContextValue(renderer).notificationsEnabled, false)
+  renderer.unmount()
+})
+
+test('immediate cold-start logout marks persisted identity before bootstrap and waits for durable marking', async () => {
+  const renderer = new HookRenderer(BubblesNotificationsProvider, createProviderProps())
+  const marked = createDeferred<void>()
+  let capturedPersistedIdentity: string | null = null
+
+  markLogout.mockImplementation(async () => {
+    capturedPersistedIdentity = storedState.deviceId
+    await marked.promise
+  })
+  const mounting = renderer.flush()
+  const logout = getContextValue(renderer).logout()
+
+  // The in-memory provider has not hydrated its legacy stored ID yet. The
+  // storage helper can atomically bind that ID because marking starts now.
+  assert.equal(markLogout.mock.calls[0]?.[1], null)
+  assert.equal(capturedPersistedIdentity, STORED_DEVICE)
+  await mounting
+  assert.equal(retryLogout.mock.calls.length, 0)
+  marked.resolve(undefined)
+  await logout
+  await renderer.flush()
+  assert.equal(retryLogout.mock.calls.length > 0, true)
+  assert.equal(getContextValue(renderer).notificationsEnabled, false)
+  assert.equal(registerCalls.length, 0)
+  renderer.unmount()
+})
+
+test('configuration changes suspend the previous authenticated notification state', async () => {
+  permissionState = { granted: true, status: 'granted' }
+  const renderer = await renderProvider()
+
+  await getContextValue(renderer).registerDevice({ userId: CURRENT_USER })
+  await renderer.flush()
+  assert.equal(getContextValue(renderer).notificationsEnabled, true)
+  await renderer.update(createProviderProps({ appKey: REPLACEMENT_APP_KEY }))
+  assert.equal(getContextValue(renderer).notificationsEnabled, false)
+  await emitTokenRefresh()
+  await renderer.flush()
+  assert.equal(maintenanceCalls.length, 0)
+  renderer.unmount()
+})
+
+test('a late logout completion from the old configuration drains before the new configuration enrolls', async () => {
+  const renderer = await renderProvider()
+
+  await getContextValue(renderer).registerDevice({ userId: CURRENT_USER })
+  const disabled = createDeferred<void>()
+
+  retryLogout.mockImplementation(async (configuration) => {
+    if ((configuration as { appKey: string }).appKey === APP_KEY) await disabled.promise
+  })
+  const logout = getContextValue(renderer).logout()
+
+  await flushMicrotasks()
+  await renderer.update(createProviderProps({ appKey: REPLACEMENT_APP_KEY }))
+  const registration = getContextValue(renderer).registerDevice({ userId: OTHER_USER })
+
+  await flushMicrotasks()
+  assert.equal(registerCalls.length, 1)
+  disabled.resolve(undefined)
+  await logout
+  await registration
+  await renderer.flush()
+  assert.equal(registerCalls.length, 2)
+  assert.equal(registerCalls[1]?.appKey, REPLACEMENT_APP_KEY)
+  assert.equal(registerCalls[1]?.userId, OTHER_USER)
+  assert.equal(getContextValue(renderer).notificationsEnabled, true)
+  renderer.unmount()
 })
