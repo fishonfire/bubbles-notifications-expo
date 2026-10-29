@@ -588,7 +588,11 @@ export async function acknowledgeRegistrationScope (
 
     if (legacyLogoutTargets) delete legacyLogoutTargets[registrationScope]
 
-    return { ...state, ...(legacyLogoutTargets ? { legacyLogoutTargets } : {}), deviceId, identityAcknowledged: true, acknowledgedInstallationId: installationId,
+    return { ...state, ...(legacyLogoutTargets ? { legacyLogoutTargets } : {}),
+      ...(state.pendingLogouts && Object.prototype.hasOwnProperty.call(state.pendingLogouts, registrationScope)
+        ? { pendingLogouts: { ...state.pendingLogouts, [registrationScope]: deviceId } }
+        : {}),
+      deviceId, identityAcknowledged: true, acknowledgedInstallationId: installationId,
       ...(oneSignalSubscriptionId ? { oneSignalSubscriptionId } : {}),
       ...(oneSignalAppId ? { oneSignalAppId } : {}) }
   })
