@@ -22,7 +22,7 @@ import { isNotificationPermissionGranted } from '../runtime/permissions'
 
 type FirebaseBackgroundMessageHandler = Parameters<
   typeof setBackgroundMessageHandler
->[1];
+>[1]
 const BACKGROUND_NOTIFICATION_SOURCE = 'Firebase background message'
 const DEFAULT_BACKGROUND_NOTIFICATION_TITLE =
   'Background notification received'

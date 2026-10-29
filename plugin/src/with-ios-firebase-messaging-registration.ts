@@ -40,7 +40,7 @@ const OBJC_REGISTRATION_BLOCK = `if ([FIRApp defaultApp] == nil) {
 type MergeAnchor = {
   anchor: RegExp;
   offset: number;
-};
+}
 
 const SWIFT_REGISTRATION_ANCHORS: MergeAnchor[] = [
   {

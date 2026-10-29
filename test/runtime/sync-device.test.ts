@@ -15,7 +15,7 @@ type SyncResult = {
   action: 'created' | 'updated';
   deviceId: string | null;
   response: { id: string };
-};
+}
 
 const syncCalls: Record<string, unknown>[] = []
 const attributeCalls: Record<string, unknown>[] = []

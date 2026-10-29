@@ -10,7 +10,7 @@ import { getBubblesDeviceRegistrationState } from './transport'
 type DeviceRegistrationOptions = Pick<
   RegisterDeviceOptions,
   'requestPermissions' | 'permissionRequestOptions'
->;
+>
 
 export interface RegisterBubblesDeviceOptions {
   oneSignalMigration?: OneSignalMigration;

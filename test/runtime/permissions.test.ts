@@ -11,7 +11,7 @@ type MockPermissionStatus = {
   ios?: {
     status: number;
   };
-};
+}
 
 const permissionState = {
   existing: {

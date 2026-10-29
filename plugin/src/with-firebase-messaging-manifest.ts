@@ -28,7 +28,7 @@ const BUBBLES_FIREBASE_MESSAGING_SERVICE =
 const BUBBLES_FIREBASE_MESSAGING_REGISTRAR =
   '.BubblesFirebaseMessagingRegistrar'
 
-type ToolsReplaceValue = 'android:value' | 'android:resource';
+type ToolsReplaceValue = 'android:value' | 'android:resource'
 
 type ManifestProvider = {
   $: {
@@ -37,12 +37,12 @@ type ManifestProvider = {
     'android:exported': 'true' | 'false';
     'android:initOrder'?: string;
   };
-};
+}
 
 type ManifestApplicationWithProvider =
   AndroidConfig.Manifest.ManifestApplication & {
     provider?: ManifestProvider[];
-  };
+  }
 
 const withFirebaseMessagingManifest: ConfigPlugin<
   NormalizedBubblesNotificationsExpoPluginConfig
@@ -50,7 +50,7 @@ const withFirebaseMessagingManifest: ConfigPlugin<
   const manifest = config.modResults
 
   const application =
-      AndroidConfig.Manifest.getMainApplicationOrThrow(manifest)
+    AndroidConfig.Manifest.getMainApplicationOrThrow(manifest)
 
   AndroidConfig.Manifest.ensureToolsAvailable(manifest)
 
@@ -90,12 +90,12 @@ const withFirebaseMessagingManifest: ConfigPlugin<
       item => item.$[ANDROID_NAME] !== FCM_INSTALLATION_ID_ENABLED
     )
     const applicationWithProvider =
-        application as ManifestApplicationWithProvider
+      application as ManifestApplicationWithProvider
 
     applicationWithProvider.provider =
-        (applicationWithProvider.provider ?? []).filter(
-          item => item.$[ANDROID_NAME] !== BUBBLES_FIREBASE_MESSAGING_REGISTRAR
-        )
+      (applicationWithProvider.provider ?? []).filter(
+        item => item.$[ANDROID_NAME] !== BUBBLES_FIREBASE_MESSAGING_REGISTRAR
+      )
     removeManifestService(application, BUBBLES_FIREBASE_MESSAGING_SERVICE)
   }
 

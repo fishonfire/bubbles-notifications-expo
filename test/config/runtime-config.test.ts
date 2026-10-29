@@ -4,8 +4,8 @@ import { beforeEach, test, vi } from 'vitest'
 const expoConstants = {
   expoConfig: undefined as
     | {
-        extra?: Record<string, unknown>;
-      }
+      extra?: Record<string, unknown>;
+    }
     | undefined
 }
 

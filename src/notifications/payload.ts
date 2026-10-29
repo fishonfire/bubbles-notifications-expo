@@ -26,7 +26,7 @@ export interface BubblesSilentNotificationPayloadContract {
 }
 
 export type BubblesForegroundNotificationPayloadContract =
-  BubblesVisibleNotificationPayloadContract;
+  BubblesVisibleNotificationPayloadContract
 
 export interface BubblesNotificationPayload {
   data: Record<string, unknown>;
