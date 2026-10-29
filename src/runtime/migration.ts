@@ -8,7 +8,7 @@ export interface OneSignalMigrationBridge {
 
 export type OneSignalMigration =
   | { policy: 'disabled' }
-  | { policy: 'required'; oneSignalAppId: string; bridge: OneSignalMigrationBridge; readinessTimeoutMs?: number };
+  | { policy: 'required'; oneSignalAppId: string; bridge: OneSignalMigrationBridge; readinessTimeoutMs?: number }
 
 export class BubblesMigrationPendingError extends Error {
   constructor () {

@@ -62,11 +62,11 @@ export interface BubblesNotificationsProviderProps {
    * this installation. This callback only observes legacy user prop changes.
    */
   onLogout?: (
-    event: BubblesNotificationsLogoutEvent,
+    event: BubblesNotificationsLogoutEvent
   ) => Promise<void> | void;
   foregroundPresentation?: ForegroundPresentationOptions;
   onNotificationResponse?: (
-    event: BubblesNotificationResponseEvent,
+    event: BubblesNotificationResponseEvent
   ) => void;
   children: ReactNode;
 }
@@ -76,12 +76,12 @@ export interface BubblesNotificationsContextValue {
   logout: () => Promise<void>;
   registerDevice: RegisterDevice;
   setDeviceAttributes: (
-    attributes: BubblesDeviceAttributes,
+    attributes: BubblesDeviceAttributes
   ) => Promise<void>;
   /** @deprecated Use `setDeviceAttributes({ [name]: value })`. */
   addDeviceAttribute: (
     name: string,
-    value: BubblesDeviceAttributeValue,
+    value: BubblesDeviceAttributeValue
   ) => Promise<void>;
   notificationsEnabled: boolean;
   isSyncing: boolean;
@@ -90,3 +90,4 @@ export interface BubblesNotificationsContextValue {
 
 export const BubblesNotificationsContext =
   createContext<BubblesNotificationsContextValue | null>(null)
+BubblesNotificationsContext.displayName = 'BubblesNotificationsContext'

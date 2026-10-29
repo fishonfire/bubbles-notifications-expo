@@ -5,7 +5,7 @@ const withRNFirebaseDisableSPM: ConfigPlugin = (config) => withPodfile(config, (
 
   if (!config.modResults.contents.includes(flag)) {
     config.modResults.contents =
-        `${flag}\n${config.modResults.contents}`
+      `${flag}\n${config.modResults.contents}`
   }
 
   return config

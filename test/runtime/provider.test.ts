@@ -27,15 +27,15 @@ const REPLACEMENT_APP_KEY = 'replacement-app-key'
 const PADDED_PRIMARY_API_BASE_URL = ` ${PRIMARY_API_BASE_URL} `
 const OTHER_USER = 'other-user'
 
-type Cleanup = (() => void) | void;
+type Cleanup = (() => void) | void
 
 interface ProviderContextValue {
   logout: () => Promise<void>;
   registerDevice: (
-    options?: Record<string, unknown>,
+    options?: Record<string, unknown>
   ) => Promise<void>;
   setDeviceAttributes: (
-    attributes: Record<string, unknown>,
+    attributes: Record<string, unknown>
   ) => Promise<void>;
   addDeviceAttribute: (name: string, value: unknown) => Promise<void>;
   notificationsEnabled: boolean;
@@ -119,10 +119,10 @@ class HookRenderer<Props> {
 
   output:
     | {
-        props: {
-          value: ProviderContextValue;
-        };
-      }
+      props: {
+        value: ProviderContextValue;
+      };
+    }
     | null = null
 
   private readonly component: (props: Props) => unknown
@@ -368,7 +368,7 @@ const grantedRegistrationState: RegistrationState = {
 }
 const registerState: {
   implementation: (
-    options: Record<string, unknown>,
+    options: Record<string, unknown>
   ) => Promise<SyncResult>;
 } = {
   implementation: async () => ({
@@ -383,7 +383,7 @@ const registerState: {
 }
 const syncState: {
   implementation: (
-    options: Record<string, unknown>,
+    options: Record<string, unknown>
   ) => Promise<SyncResult>;
 } = {
   implementation: async () => ({
@@ -401,7 +401,7 @@ const syncState: {
 }
 const maintenanceState: {
   implementation: (
-    options: Record<string, unknown>,
+    options: Record<string, unknown>
   ) => Promise<{
     registrationState: RegistrationState;
     syncResult: Omit<SyncResult, 'registrationState'> | null;

@@ -17,7 +17,7 @@ export const ANDROID_CHANNEL_IMPORTANCE_VALUES =
   SHARED_ANDROID_CHANNEL_IMPORTANCE_VALUES
 
 export type AndroidChannelImportance =
-  (typeof ANDROID_CHANNEL_IMPORTANCE_VALUES)[number];
+  (typeof ANDROID_CHANNEL_IMPORTANCE_VALUES)[number]
 
 export interface BubblesNotificationsRuntimeConfig {
   defaultChannelId: string;

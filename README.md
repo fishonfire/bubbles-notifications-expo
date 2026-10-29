@@ -251,7 +251,11 @@ An example application can be found at: https://github.com/fishonfire/bubbles-no
 
 Run `npm run lint` to check authored JavaScript and TypeScript in the runtime, config plugin, tests, and package configuration. Run `npm run lint:fix` to apply automatic fixes. Both commands require zero warnings; generated `dist/` and `plugin/build/` files are excluded.
 
-Linting follows [eslint-config-fishonfire](https://github.com/fishonfire/eslint-config-fishonfire), including React, Hooks, and SonarJS rules, on top of Expo's defaults. The config preserves its TypeScript ESLint 5 recommended rules using TypeScript ESLint 8 equivalents where rules were retired, keeping compatibility with Expo 57.
+Linting uses ESLint 10 flat configuration, TypeScript ESLint 8, and maintained Stylistic equivalents of [eslint-config-fishonfire](https://github.com/fishonfire/eslint-config-fishonfire)'s formatting rules. The original SonarJS rule scope is explicit; upgrading the plugin does not enable its entire expanded recommended preset. TypeScript checks use the current recommended rules while retaining existing project choices. Multiline type unions and intersections put `|` and `&` at the start of each line for readability.
+
+Expo 57's three Expo rules and import conventions are configured directly with `eslint-plugin-expo` and `eslint-plugin-import-x`. React checks use `@eslint-react/eslint-plugin`, JSX formatting uses Stylistic, and React Hooks keeps its existing recommended rules. Legacy React checks for `isMounted`, string refs, missing render returns, and unescaped entities have no direct replacement; TypeScript continues checking duplicate JSX props in TSX, and ESLint checks undefined JSX names. Duplicate props in plain JSX no longer have a dedicated lint check. Display-name checking now covers named component wrappers and contexts, so the context gets an explicit display name for React DevTools.
+
+Use Node.js 22.13 or newer for development (CI uses Node.js 22). The npm override makes `eslint-plugin-expo` reuse the project's ESLint 10: the plugin supports it through its peer range but otherwise installs a redundant ESLint 9 dependency. No forced or ignored peer dependencies are needed.
 
 Run `npm run typecheck`, `npm test`, and `npm run build` for the remaining development checks.
 

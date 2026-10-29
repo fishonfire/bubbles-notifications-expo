@@ -24,7 +24,7 @@ export interface StoredDeviceState {
   legacyLogoutTargets?: Record<string, string>;
 }
 
-export type StoredDeviceStateUpdate = Partial<StoredDeviceState>;
+export type StoredDeviceStateUpdate = Partial<StoredDeviceState>
 
 type PersistedStoredDeviceState = {
   version: typeof STORED_DEVICE_STATE_VERSION;
@@ -36,13 +36,13 @@ type PersistedStoredDeviceState = {
   oneSignalSubscriptionId?: string;
   oneSignalAppId?: string;
   acknowledgedInstallationId?: string;
-  pendingLogouts?: Record<string, string | null>;
-  legacyLogoutTargets?: Record<string, string>;
-};
+  pendingLogouts?: Record<string, string | null>
+  legacyLogoutTargets?: Record<string, string>
+}
 
 type StoredDeviceStateUpdater = (
-  state: StoredDeviceState,
-) => StoredDeviceState | Promise<StoredDeviceState>;
+  state: StoredDeviceState
+) => StoredDeviceState | Promise<StoredDeviceState>
 
 let mutationQueue: Promise<void> = Promise.resolve()
 let temporaryFileSequence = 0

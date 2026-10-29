@@ -38,7 +38,7 @@ type PersistedDeliveryStatusLedger = {
   version: typeof DELIVERY_STATUS_LEDGER_VERSION;
   pendingEvents?: StoredDeliveryStatusEvent[];
   postedEventKeys?: string[];
-};
+}
 
 function getDeliveryStatusLedgerFile () {
   return new File(Paths.document, DELIVERY_STATUS_LEDGER_FILE_NAME)

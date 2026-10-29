@@ -10,4 +10,4 @@ export const ANDROID_CHANNEL_IMPORTANCE_VALUES = [
 ] as const
 
 export type AndroidChannelImportance =
-  (typeof ANDROID_CHANNEL_IMPORTANCE_VALUES)[number];
+  (typeof ANDROID_CHANNEL_IMPORTANCE_VALUES)[number]

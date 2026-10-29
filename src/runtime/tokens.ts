@@ -15,10 +15,10 @@ import { getFirebaseInstallationId } from './installations'
 import { getBubblesNotificationsRuntimeConfig } from '../config/runtime-config'
 
 export type { SupportedPlatform } from '../internal/platform'
-export type NativeTokenType = 'fcm' | 'fid';
-type FirebaseMessagingModule = typeof import('@react-native-firebase/messaging');
+export type NativeTokenType = 'fcm' | 'fid'
+type FirebaseMessagingModule = typeof import('@react-native-firebase/messaging')
 
-export type GetDeviceTokenOptions = GetNotificationPermissionsOptions;
+export type GetDeviceTokenOptions = GetNotificationPermissionsOptions
 
 export interface DeviceTokenResult {
   platform: SupportedPlatform;

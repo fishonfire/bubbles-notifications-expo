@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import ts from 'typescript'
+import * as ts from 'typescript'
 import { test } from 'vitest'
 
 const PROJECT_ROOT = resolve(import.meta.dirname, '..')

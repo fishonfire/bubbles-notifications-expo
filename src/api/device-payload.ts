@@ -7,7 +7,7 @@ import {
 } from '../internal/validation'
 import { failWithBubblesError } from '../internal/errors'
 
-export type BubblesDevicePlatform = 'android' | 'ios';
+export type BubblesDevicePlatform = 'android' | 'ios'
 
 export interface BuildBubblesDevicePayloadOptions {
   userId: string;
@@ -45,7 +45,7 @@ export interface BubblesCreateDevicePayload extends BubblesDevicePayload {
   app_id: string | number;
 }
 
-export type BubblesUpdateDevicePayload = BubblesDevicePayload;
+export type BubblesUpdateDevicePayload = BubblesDevicePayload
 
 function normalizeOptionalString (
   value: unknown,
