@@ -39,7 +39,11 @@ export async function retryBubblesLogout (configuration: BubblesLogoutConfigurat
   const timeout = setTimeout(() => controller.abort(), 10000)
 
   try {
-    await client.updateDevice(deviceId, { notifications_enabled: false }, { signal: controller.signal })
+    try {
+      await client.updateDevice(deviceId, { notifications_enabled: false }, { signal: controller.signal })
+    } catch (error) {
+      if (!error || typeof error !== 'object' || Reflect.get(error, 'status') !== 404) throw error
+    }
     await clearPendingLogout(scope, deviceId)
   } finally {
     clearTimeout(timeout)
