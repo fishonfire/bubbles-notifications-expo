@@ -278,6 +278,8 @@ export function BubblesNotificationsProvider (
 
         if (sessionSuspendedRef.current) {
           setState((current) => ({ ...current, notificationsEnabled: false }))
+        } else {
+          return maintainEnrolledSession()
         }
       }).then(() => {
         clearLogoutRetry()
