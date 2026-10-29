@@ -20,6 +20,8 @@ export interface StoredDeviceState {
   oneSignalSubscriptionId?: string;
   oneSignalAppId?: string;
   acknowledgedInstallationId?: string;
+  pendingLogouts?: Record<string, string | null>;
+  legacyLogoutTargets?: Record<string, string>;
 }
 
 export type StoredDeviceStateUpdate = Partial<StoredDeviceState>
@@ -34,6 +36,8 @@ type PersistedStoredDeviceState = {
   oneSignalSubscriptionId?: string;
   oneSignalAppId?: string;
   acknowledgedInstallationId?: string;
+  pendingLogouts?: Record<string, string | null>
+  legacyLogoutTargets?: Record<string, string>
 }
 
 type StoredDeviceStateUpdater = (
@@ -60,6 +64,30 @@ function getOptionalNonEmptyString (
   return trimmedValue.length > 0 ? trimmedValue : null
 }
 
+function normalizePendingLogouts (value: unknown): Record<string, string | null> {
+  if (!isPlainObject(value)) failWithBubblesError('Stored pending logouts must be an object.')
+
+  return Object.fromEntries(Object.entries(value).map(([scope, target]) => {
+    if (target !== null && (typeof target !== 'string' || !target.trim())) {
+      failWithBubblesError('Stored pending logout target must be a non-empty string or null.')
+    }
+
+    return [scope, typeof target === 'string' ? target.trim() : null]
+  }))
+}
+
+function normalizeLegacyLogoutTargets (value: unknown): Record<string, string> {
+  if (!isPlainObject(value)) failWithBubblesError('Stored legacy logout targets must be an object.')
+
+  return Object.fromEntries(Object.entries(value).map(([scope, target]) => {
+    if (typeof target !== 'string' || !target.trim()) {
+      failWithBubblesError('Stored legacy logout target must be a non-empty string.')
+    }
+
+    return [scope, target.trim()]
+  }))
+}
+
 function normalizeStoredDeviceState (
   value: unknown,
   sourceDescription = 'storage'
@@ -71,6 +99,8 @@ function normalizeStoredDeviceState (
   }
 
   return {
+    ...(value.pendingLogouts === undefined ? {} : { pendingLogouts: normalizePendingLogouts(value.pendingLogouts) }),
+    ...(value.legacyLogoutTargets === undefined ? {} : { legacyLogoutTargets: normalizeLegacyLogoutTargets(value.legacyLogoutTargets) }),
     deviceId: getOptionalNonEmptyString(value.deviceId, 'deviceId'),
     apiBaseUrl: getOptionalNonEmptyString(value.apiBaseUrl, 'apiBaseUrl'),
     appKey: getOptionalNonEmptyString(value.appKey, 'appKey'),
@@ -89,6 +119,14 @@ function normalizeStoredDeviceStateUpdate (
   }
 
   const nextState: StoredDeviceStateUpdate = {}
+
+  if ('legacyLogoutTargets' in value) {
+    nextState.legacyLogoutTargets = normalizeLegacyLogoutTargets(value.legacyLogoutTargets)
+  }
+
+  if ('pendingLogouts' in value) {
+    nextState.pendingLogouts = normalizePendingLogouts(value.pendingLogouts)
+  }
 
   if ('deviceId' in value) {
     nextState.deviceId = getOptionalNonEmptyString(value.deviceId, 'deviceId')
@@ -123,6 +161,14 @@ function serializeStoredDeviceState (
 ): PersistedStoredDeviceState {
   const serializedState: PersistedStoredDeviceState = {
     version: STORED_DEVICE_STATE_VERSION
+  }
+
+  if (state.legacyLogoutTargets) {
+    serializedState.legacyLogoutTargets = state.legacyLogoutTargets
+  }
+
+  if (state.pendingLogouts) {
+    serializedState.pendingLogouts = state.pendingLogouts
   }
 
   if (state.deviceId) {
@@ -505,9 +551,25 @@ export async function prepareRegistrationScope (apiBaseUrl: string, appId: strin
   return updateState((state) => {
     if (isCurrent && !isCurrent()) failWithBubblesError('Registration configuration changed.')
 
-    return state.registrationScope === registrationScope
-      ? { ...state, apiBaseUrl, appKey }
-      : { ...EMPTY_STORED_DEVICE_STATE, apiBaseUrl, appKey, registrationScope, identityAcknowledged: false }
+    if (state.registrationScope === registrationScope) return { ...state, apiBaseUrl, appKey }
+
+    // Bootstrap must retain a verified legacy device solely for later logout;
+    // this archive never participates in canonical enrollment reconciliation.
+    const legacyTarget = !state.registrationScope ? resolveLogoutTarget(state, registrationScope, appKey) : null
+    const legacyLogoutTargets = legacyTarget
+      ? { ...state.legacyLogoutTargets, [registrationScope]: legacyTarget }
+      : state.legacyLogoutTargets
+    const pendingLogouts = state.pendingLogouts && {
+      ...state.pendingLogouts,
+      ...(state.pendingLogouts[registrationScope] === null
+        ? { [registrationScope]: resolveLogoutTarget(state, registrationScope, appKey) }
+        : {})
+    }
+
+    return { ...EMPTY_STORED_DEVICE_STATE,
+      ...(legacyLogoutTargets ? { legacyLogoutTargets } : {}),
+      ...(pendingLogouts ? { pendingLogouts } : {}),
+      apiBaseUrl, appKey, registrationScope, identityAcknowledged: false }
   })
 }
 
@@ -522,7 +584,15 @@ export async function acknowledgeRegistrationScope (
   return updateState((state) => {
     if ((isCurrent && !isCurrent()) || state.registrationScope !== registrationScope) failWithBubblesError('Registration configuration changed before identity acknowledgement.')
 
-    return { ...state, deviceId, identityAcknowledged: true, acknowledgedInstallationId: installationId,
+    const legacyLogoutTargets = state.legacyLogoutTargets && { ...state.legacyLogoutTargets }
+
+    if (legacyLogoutTargets) delete legacyLogoutTargets[registrationScope]
+
+    return { ...state, ...(legacyLogoutTargets ? { legacyLogoutTargets } : {}),
+      ...(state.pendingLogouts && Object.prototype.hasOwnProperty.call(state.pendingLogouts, registrationScope)
+        ? { pendingLogouts: { ...state.pendingLogouts, [registrationScope]: deviceId } }
+        : {}),
+      deviceId, identityAcknowledged: true, acknowledgedInstallationId: installationId,
       ...(oneSignalSubscriptionId ? { oneSignalSubscriptionId } : {}),
       ...(oneSignalAppId ? { oneSignalAppId } : {}) }
   })
@@ -534,5 +604,36 @@ export async function captureScopedSubscription (registrationScope: string, oneS
     if (state.oneSignalSubscriptionId && state.oneSignalSubscriptionId !== oneSignalSubscriptionId) failWithBubblesError('OneSignal subscription changed; identity requires reconciliation.')
 
     return { ...state, oneSignalSubscriptionId, oneSignalAppId, identityAcknowledged: false }
+  })
+}
+
+function resolveLogoutTarget (state: StoredDeviceState, scope: string, appKey?: string): string | null {
+  if (state.registrationScope === scope && state.deviceId) return state.deviceId
+  if (!state.registrationScope && state.apiBaseUrl && state.appKey === appKey) {
+    const [, appId] = JSON.parse(scope) as [string, string]
+
+    if (getRegistrationScope(state.apiBaseUrl, appId) === scope) return state.deviceId
+  }
+
+  return state.legacyLogoutTargets?.[scope] ?? null
+}
+
+/** Record logout before draining a registration that may still establish its canonical ID. */
+export async function markPendingLogout (scope: string, deviceId: string | null, appKey?: string): Promise<void> {
+  await updateState((state) => ({
+    ...state,
+    pendingLogouts: { ...state.pendingLogouts, [scope]: deviceId ?? state.pendingLogouts?.[scope] ?? resolveLogoutTarget(state, scope, appKey) }
+  }))
+}
+
+export async function clearPendingLogout (scope: string, expectedTarget: string | null): Promise<void> {
+  await updateState((state) => {
+    if (!state.pendingLogouts || state.pendingLogouts[scope] !== expectedTarget) return state
+
+    const pendingLogouts = { ...state.pendingLogouts }
+
+    delete pendingLogouts[scope]
+
+    return { ...state, pendingLogouts }
   })
 }

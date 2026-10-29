@@ -186,11 +186,39 @@ export function EnableNotificationsButton({ userId }: { userId: string }) {
 
 Repeated enrollment in the same mounted provider rechecks notification permissions and token state, but skips backend registration when the user, aliases, app version, provider configuration, and registration state are unchanged. Enrollment completes after the backend device ID is stored; delivery-status flushing and built-in device attribute synchronization continue independently. Custom `setDeviceAttributes()` requests still await enrollment, but do not await those follow-up tasks. A new provider session enrolls again.
 
-`useBubblesNotifications()` exposes `registerDevice`, `setDeviceAttributes`, `notificationsEnabled`, `isSyncing`, and `error`. The deprecated `addDeviceAttribute` adapter remains available for existing integrations. Device identifiers, token details, and detailed permission status are managed internally.
+`useBubblesNotifications()` exposes `registerDevice`, `logout`, `setDeviceAttributes`, `notificationsEnabled`, `isSyncing`, and `error`. The deprecated `addDeviceAttribute` adapter remains available for existing integrations. Device identifiers, token details, and detailed permission status are managed internally.
 
 `requestPermissions` defaults to `false`. Set it to `true` only from a user-initiated flow where opening the system permission prompt is appropriate. You can customize that request with `permissionRequestOptions`.
 
-The previous provider-level `ready`, `userId`, `aliasing`, `appVersion`, and `onLogout` props are deprecated compatibility adapters. Existing integrations may temporarily keep those props and call `registerDevice()` without arguments, but should migrate enrollment data into `registerDevice(options)`. There is no new logout/detach API because the package has no defined backend detach behavior; consuming apps should handle their own logout policy.
+The previous provider-level `ready`, `userId`, `aliasing`, `appVersion`, and `onLogout` props are deprecated compatibility adapters. Existing integrations may temporarily keep those props and call `registerDevice()` without arguments, but should migrate enrollment data into `registerDevice(options)`. Call the explicit `logout()` method when the host authentication session ends; the deprecated `onLogout` prop remains a callback for legacy integrations.
+
+## Log out the device
+
+Call `logout()` when the host authentication session ends, including a signed-out
+startup. It stops enrollment retries and token/foreground maintenance immediately,
+then waits for in-flight registration to store its canonical device ID before
+updating that device with `notifications_enabled: false`. It preserves the
+installation identity, user association, and imported OneSignal subscription ID.
+
+```tsx
+const { logout } = useBubblesNotifications();
+
+await logout();
+```
+
+Await completion before unmounting the provider. A failed request rejects and
+remains persisted for retry at startup, on foreground activation, and every 15
+seconds while the app is active. New `registerDevice(options)` calls process any
+pending device disable before enrolling the next authenticated session. Calling
+`logout()` repeatedly is safe. Successful enrollment restores notification
+eligibility according to OS permission; logout does not revoke OS permission.
+
+The host still owns its auth state, foreground presentation policy, and clearing
+already displayed notifications. This method cannot recall pushes already handed
+to APNs/FCM, update the backend while offline, or resolve an imported device that
+has not yet acquired a local canonical Bubbles ID. Platform administrative test
+sends may bypass notification eligibility. Verify migration and logout with native
+builds and the deployed backend before rollout.
 
 ## Set custom device attributes
 

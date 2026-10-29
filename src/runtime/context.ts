@@ -58,8 +58,8 @@ export interface BubblesNotificationsProviderProps {
   /** @deprecated Pass `appVersion` to `registerDevice(options)`. */
   appVersion?: string | null;
   /**
-   * @deprecated No backend detach behavior is defined. Handle logout in the
-   * consuming application instead.
+   * @deprecated Call `useBubblesNotifications().logout()` explicitly to disable
+   * this installation. This callback only observes legacy user prop changes.
    */
   onLogout?: (
     event: BubblesNotificationsLogoutEvent
@@ -72,6 +72,8 @@ export interface BubblesNotificationsProviderProps {
 }
 
 export interface BubblesNotificationsContextValue {
+  /** Disable this installation and stop authenticated-session maintenance. */
+  logout: () => Promise<void>;
   registerDevice: RegisterDevice;
   setDeviceAttributes: (
     attributes: BubblesDeviceAttributes
