@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test, vi } from 'vitest'
 
+const BACKUP_EXCLUSIONS = 'backup-exclusions'
 const RUNTIME_DEFAULTS = 'runtime-defaults'
 const EXPO_NOTIFICATIONS = 'expo-notifications'
 const FIREBASE_MESSAGING_MANIFEST = 'firebase-messaging-manifest'
@@ -32,6 +33,7 @@ vi.doMock('../../plugin/src/config.ts', () => ({
   }
 }))
 
+mockPlugin('../../plugin/src/with-installation-backup-exclusions.ts', BACKUP_EXCLUSIONS)
 mockPlugin('../../plugin/src/with-runtime-defaults.ts', RUNTIME_DEFAULTS)
 mockPlugin('../../plugin/src/with-expo-notifications.ts', EXPO_NOTIFICATIONS)
 mockPlugin(
@@ -67,6 +69,7 @@ test('default plugin configuration applies cleanup-capable FID mods', () => {
   withBubblesNotificationsExpo({} as never, undefined)
 
   assert.deepEqual(pluginCalls, [
+    BACKUP_EXCLUSIONS,
     RUNTIME_DEFAULTS,
     EXPO_NOTIFICATIONS,
     FIREBASE_MESSAGING_MANIFEST,
@@ -83,6 +86,7 @@ test('enabled plugin configuration applies messaging safety and FID native mods'
   })
 
   assert.deepEqual(pluginCalls, [
+    BACKUP_EXCLUSIONS,
     RUNTIME_DEFAULTS,
     EXPO_NOTIFICATIONS,
     FIREBASE_MESSAGING_MANIFEST,
