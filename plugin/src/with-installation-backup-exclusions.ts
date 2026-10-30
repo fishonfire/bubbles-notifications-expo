@@ -4,15 +4,26 @@ import { AndroidConfig, ConfigPlugin, XML, withAndroidManifest, withAppDelegate 
 import { mergeContents, removeContents } from '@expo/config-plugins/build/utils/generateCode'
 
 const DIRECTORY = 'bubbles-notifications'
+const LEGACY_FILES = [
+  'bubbles-notifications-installation-id.txt',
+  'bubbles-notifications-installation-id.txt.tmp',
+  'bubbles-notifications-expo-state.json',
+  'bubbles-notifications-expo-delivery-status-ledger.json',
+  'device-id.txt'
+]
 const TAG = '@fishonfire/bubbles-expo-installation-backup-exclusions'
 
 type XmlNode = Record<string, unknown>
 
-function excludeDirectory (node: XmlNode): void {
+function excludeInstallationStorage (node: XmlNode): void {
   const excludes = (node.exclude ?? []) as { $: Record<string, string> }[]
 
-  if (!excludes.some(item => item.$.domain === 'file' && item.$.path === DIRECTORY)) {
-    excludes.push({ $: { domain: 'file', path: DIRECTORY } })
+  // Legacy files must be protected as soon as the native update is installed,
+  // even if JavaScript registration never runs to migrate them.
+  for (const storagePath of [DIRECTORY, ...LEGACY_FILES]) {
+    if (!excludes.some(item => item.$.domain === 'file' && item.$.path === storagePath)) {
+      excludes.push({ $: { domain: 'file', path: storagePath } })
+    }
   }
   node.exclude = excludes
 }
@@ -23,7 +34,7 @@ export function mergeBackupExclusions (xml: XmlNode, modern: boolean): XmlNode {
     const root = xml['full-backup-content']
     const node = root && typeof root === 'object' ? root as XmlNode : {}
 
-    excludeDirectory(node)
+    excludeInstallationStorage(node)
     xml['full-backup-content'] = node
 
     return xml
@@ -40,7 +51,7 @@ export function mergeBackupExclusions (xml: XmlNode, modern: boolean): XmlNode {
       const section = sections[index]
 
       if (!section || typeof section !== 'object') sections[index] = {}
-      excludeDirectory(sections[index])
+      excludeInstallationStorage(sections[index])
     }
     node[mode] = sections
   }
@@ -63,6 +74,27 @@ async function findBackupResources (resourceDirectory: string, resourceName: str
   return existing
 }
 
+async function writeBackupResource (filename: string, xml: XmlNode, modern: boolean): Promise<void> {
+  await fs.mkdir(path.dirname(filename), { recursive: true })
+  await fs.writeFile(filename, XML.format(mergeBackupExclusions(xml, modern)))
+}
+
+async function updateBackupResources (filenames: string[], modern: boolean): Promise<void> {
+  const expectedRoot = modern ? 'data-extraction-rules' : 'full-backup-content'
+  let matchingResources = 0
+
+  for (const filename of filenames) {
+    const xml = await XML.parseXMLAsync(await fs.readFile(filename, 'utf8'))
+
+    // A host may use one resource name with a different schema in xml-v31.
+    // Only the pass for that file's actual schema may modify it.
+    if (!Object.prototype.hasOwnProperty.call(xml, expectedRoot)) continue
+    await writeBackupResource(filename, xml, modern)
+    matchingResources++
+  }
+  if (matchingResources === 0) throw new Error(`[BubblesNotifications] No backup resource has the required <${expectedRoot}> root.`)
+}
+
 export async function configureBackupResource (
   resourceDirectory: string,
   reference: string | undefined,
@@ -79,15 +111,12 @@ export async function configureBackupResource (
   if (existing.length === 0 && reference?.startsWith('@')) {
     throw new Error(`[BubblesNotifications] Cannot find backup resource ${reference}; provide a local XML resource so installation exclusions can be merged.`)
   }
-  if (existing.length === 0) existing.push(path.join(resourceDirectory, 'xml', `${resourceName}.xml`))
-  for (const filename of existing) {
-    let xml: XmlNode = {}
+  if (existing.length === 0) {
+    const filename = path.join(resourceDirectory, 'xml', `${resourceName}.xml`)
 
-    try { xml = await XML.parseXMLAsync(await fs.readFile(filename, 'utf8')) } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    }
-    await fs.mkdir(path.dirname(filename), { recursive: true })
-    await fs.writeFile(filename, XML.format(mergeBackupExclusions(xml, modern)))
+    await writeBackupResource(filename, {}, modern)
+  } else {
+    await updateBackupResources(existing, modern)
   }
 
   return `@xml/${resourceName}`
@@ -107,19 +136,39 @@ export function updateAppDelegateBackupExclusions (contents: string, language: s
   if (!method) throw new Error('[BubblesNotifications] Cannot find AppDelegate launch method to protect installation storage.')
   const block = swift
     ? `do {
-      var bubblesDirectory = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true).appendingPathComponent("${DIRECTORY}", isDirectory: true)
+      let bubblesDocuments = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+      var bubblesDirectory = bubblesDocuments.appendingPathComponent("${DIRECTORY}", isDirectory: true)
       try FileManager.default.createDirectory(at: bubblesDirectory, withIntermediateDirectories: true, attributes: nil)
       var bubblesValues = URLResourceValues()
       bubblesValues.isExcludedFromBackup = true
       try bubblesDirectory.setResourceValues(bubblesValues)
+      // Protect existing root files before JavaScript's lazy migration runs.
+      for var bubblesLegacyFile in try FileManager.default.contentsOfDirectory(at: bubblesDocuments, includingPropertiesForKeys: nil) {
+        let bubblesName = bubblesLegacyFile.lastPathComponent
+        if bubblesName.hasPrefix("bubbles-notifications-") || bubblesName == "device-id.txt" {
+          try bubblesLegacyFile.setResourceValues(bubblesValues)
+        }
+      }
     } catch {
       fatalError("[BubblesNotifications] Cannot exclude installation storage from backup: \\(error)")
     }`
-    : `NSURL *bubblesDirectory = [[[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject URLByAppendingPathComponent:@"${DIRECTORY}" isDirectory:YES];
+    : `NSURL *bubblesDocuments = [[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
+  NSURL *bubblesDirectory = [bubblesDocuments URLByAppendingPathComponent:@"${DIRECTORY}" isDirectory:YES];
   NSError *bubblesBackupError = nil;
   if (![[NSFileManager defaultManager] createDirectoryAtURL:bubblesDirectory withIntermediateDirectories:YES attributes:nil error:&bubblesBackupError] ||
       ![bubblesDirectory setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:&bubblesBackupError]) {
     @throw [NSException exceptionWithName:@"BubblesBackupExclusionError" reason:[bubblesBackupError localizedDescription] userInfo:nil];
+  }
+  NSArray<NSURL *> *bubblesLegacyFiles = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:bubblesDocuments includingPropertiesForKeys:nil options:0 error:&bubblesBackupError];
+  if (bubblesLegacyFiles == nil) {
+    @throw [NSException exceptionWithName:@"BubblesBackupExclusionError" reason:[bubblesBackupError localizedDescription] userInfo:nil];
+  }
+  for (NSURL *bubblesLegacyFile in bubblesLegacyFiles) {
+    NSString *bubblesName = bubblesLegacyFile.lastPathComponent;
+    if (([bubblesName hasPrefix:@"bubbles-notifications-"] || [bubblesName isEqualToString:@"device-id.txt"]) &&
+        ![bubblesLegacyFile setResourceValue:@YES forKey:NSURLIsExcludedFromBackupKey error:&bubblesBackupError]) {
+      @throw [NSException exceptionWithName:@"BubblesBackupExclusionError" reason:[bubblesBackupError localizedDescription] userInfo:nil];
+    }
   }`
 
   return mergeContents({
