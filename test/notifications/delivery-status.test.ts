@@ -54,6 +54,13 @@ const postDeliveryStatusCalls: Record<string, unknown>[] = []
 let postDeliveryStatusError: Error | null = null
 
 vi.doMock('expo-file-system', () => ({
+  Directory: class {
+    uri: string
+
+    constructor (base: string, name: string) { this.uri = `${base}/${name}` }
+
+    create () { /* Directory creation has no effect on the in-memory file map. */ }
+  },
   File: MockFile,
   Paths: {
     document: documentDirectory
@@ -205,7 +212,7 @@ test('deduplicates clicked delivery statuses once per notification', async () =>
 })
 
 test('migration drops pending clicks already posted under another action key', async () => {
-  const ledgerUri = `${documentDirectory}/bubbles-notifications-expo-delivery-status-ledger.json`
+  const ledgerUri = `${documentDirectory}/bubbles-notifications/bubbles-notifications-expo-delivery-status-ledger.json`
   const createdAt = new Date().toISOString()
   const defaultActionKey = JSON.stringify([
     NOTIFICATION_ID,
@@ -397,7 +404,7 @@ test('migration keeps one unposted click across legacy action keys', () => {
   const event = createStoredDeliveryStatusEvent({ notificationId: 'unposted-click', status: 'clicked' })
 
   fileContents.set(
-    `${documentDirectory}/bubbles-notifications-expo-delivery-status-ledger.json`,
+    `${documentDirectory}/bubbles-notifications/bubbles-notifications-expo-delivery-status-ledger.json`,
     JSON.stringify({
       version: 1,
       pendingEvents: ['default', 'custom'].map(actionId => ({

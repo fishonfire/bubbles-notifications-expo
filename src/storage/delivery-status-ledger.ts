@@ -1,4 +1,4 @@
-import { File, Paths } from 'expo-file-system'
+import { getPrivateFile } from './private-file'
 import { writeAsStringAsync } from 'expo-file-system/legacy'
 
 import type { BubblesDeliveryStatus } from '../api/delivery-status'
@@ -41,7 +41,7 @@ type PersistedDeliveryStatusLedger = {
 }
 
 function getDeliveryStatusLedgerFile () {
-  return new File(Paths.document, DELIVERY_STATUS_LEDGER_FILE_NAME)
+  return getPrivateFile(DELIVERY_STATUS_LEDGER_FILE_NAME)
 }
 
 function getOptionalNonEmptyString (value: unknown): string | undefined {

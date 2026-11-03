@@ -15,8 +15,8 @@ const fileContents = new Map<string, string>()
 const fileMoves: { from: string; to: string; overwrite: boolean }[] = []
 const documentDirectory = '/mock/document'
 const storedStateUri =
-  `${documentDirectory}/bubbles-notifications-expo-state.json`
-const legacyDeviceIdUri = `${documentDirectory}/device-id.txt`
+  `${documentDirectory}/bubbles-notifications/bubbles-notifications-expo-state.json`
+const legacyDeviceIdUri = `${documentDirectory}/bubbles-notifications/device-id.txt`
 
 class MockFile {
   uri: string
@@ -86,6 +86,13 @@ class MockFile {
 }
 
 vi.doMock('expo-file-system', () => ({
+  Directory: class {
+    uri: string
+
+    constructor (base: string, name: string) { this.uri = `${base}/${name}` }
+
+    create () { /* Directory creation has no effect on the in-memory file map. */ }
+  },
   File: MockFile,
   Paths: {
     document: documentDirectory

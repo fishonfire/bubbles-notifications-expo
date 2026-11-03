@@ -1,4 +1,5 @@
-import { File, Paths } from 'expo-file-system'
+import type { File } from 'expo-file-system'
+import { getPrivateFile } from './private-file'
 import { failWithBubblesError } from '../internal/errors'
 import { isPlainObject } from '../internal/validation'
 
@@ -191,25 +192,23 @@ function serializeStoredDeviceState (
 }
 
 function getStoredDeviceStateFile () {
-  return new File(Paths.document, STORED_DEVICE_STATE_FILE_NAME)
+  return getPrivateFile(STORED_DEVICE_STATE_FILE_NAME)
 }
 
 function getLegacyDeviceIdFile () {
-  return new File(Paths.document, LEGACY_DEVICE_ID_FILE_NAME)
+  return getPrivateFile(LEGACY_DEVICE_ID_FILE_NAME)
 }
 
 function getTemporaryStoredDeviceStateFile () {
   temporaryFileSequence += 1
 
-  return new File(
-    Paths.document,
+  return getPrivateFile(
     `${STORED_DEVICE_STATE_FILE_NAME}.tmp-${Date.now()}-${temporaryFileSequence}`
   )
 }
 
 function getCorruptStoredDeviceStateFile () {
-  return new File(
-    Paths.document,
+  return getPrivateFile(
     `${STORED_DEVICE_STATE_FILE_NAME}.corrupt-${Date.now()}`
   )
 }

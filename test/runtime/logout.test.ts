@@ -3,7 +3,7 @@ import { beforeEach, afterEach, test, vi } from 'vitest'
 
 const fileContents = new Map<string, string>()
 const documentDirectory = '/mock/document'
-const storedStateUri = `${documentDirectory}/bubbles-notifications-expo-state.json`
+const storedStateUri = `${documentDirectory}/bubbles-notifications/bubbles-notifications-expo-state.json`
 
 class MockFile {
   uri: string
@@ -68,6 +68,13 @@ class MockFile {
 }
 
 vi.doMock('expo-file-system', () => ({
+  Directory: class {
+    uri: string
+
+    constructor (base: string, name: string) { this.uri = `${base}/${name}` }
+
+    create () { /* Directory creation has no effect on the in-memory file map. */ }
+  },
   File: MockFile,
   Paths: {
     document: documentDirectory

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test, vi } from 'vitest'
 
+const STATE_PATH = '/document/bubbles-notifications/bubbles-notifications-expo-state.json'
+const IDENTITY_PATH = '/document/bubbles-notifications/bubbles-notifications-installation-id.txt'
 const ORIGINAL_APP = 'original-app'
 const uuid = '4885590c-7ce2-444a-8bfb-5c2adba24296'
 const files = new Map<string, string>()
@@ -31,7 +33,14 @@ class MockFile {
 
   async move (destination: MockFile) { this.moveSync(destination) }
 }
-vi.doMock('expo-file-system', () => ({ File: MockFile, Paths: { document: '/document' } }))
+vi.doMock('expo-file-system', () => ({ Directory: class {
+  uri: string
+
+  constructor (base: string, name: string) { this.uri = `${base}/${name}` }
+
+  create () { /* Directory creation has no effect on the in-memory file map. */ }
+},
+File: MockFile, Paths: { document: '/document' } }))
 vi.doMock('expo-crypto', () => ({ randomUUID: () => { generations++
 
   return uuid } }))
@@ -54,13 +63,13 @@ function bridge (id: string | null) {
 test('concurrent collection persists one UUID independent of registration metadata', async () => {
   assert.deepEqual(await Promise.all([getOrCreateInstallationId(), getOrCreateInstallationId()]), [uuid, uuid])
   assert.equal(generations, 1)
-  files.set('/document/bubbles-notifications-expo-state.json', '{corrupt')
+  files.set(STATE_PATH, '{corrupt')
   await readStoredDeviceStateAsync()
   assert.equal(await getOrCreateInstallationId(), uuid)
 })
 
 test('v1 state remains readable; first handshake reconciles cached ID and uses scoped canonical binding', async () => {
-  files.set('/document/bubbles-notifications-expo-state.json', JSON.stringify({ version: 1, deviceId: 'cached-duplicate', apiBaseUrl: config.apiBaseUrl, appKey: 'old' }))
+  files.set(STATE_PATH, JSON.stringify({ version: 1, deviceId: 'cached-duplicate', apiBaseUrl: config.apiBaseUrl, appKey: 'old' }))
   assert.equal((await readStoredDeviceStateAsync()).deviceId, 'cached-duplicate')
   const identity = await resolveRegistrationIdentity(config)
 
@@ -123,9 +132,9 @@ test('stale configuration cannot overwrite scope or save a delayed bridge identi
 })
 
 test('corrupt or lost UUID fails closed rather than claiming a new installation', async () => {
-  files.set('/document/bubbles-notifications-installation-id.txt', 'broken')
+  files.set(IDENTITY_PATH, 'broken')
   await assert.rejects(getOrCreateInstallationId(), /corrupt/)
-  files.delete('/document/bubbles-notifications-installation-id.txt')
+  files.delete(IDENTITY_PATH)
   const state = await prepareRegistrationScope(config.apiBaseUrl, config.appId, config.appKey)
 
   assert.ok(state.registrationScope)
@@ -140,4 +149,24 @@ test('scoped bridge capture rejects replacement of the original imported identit
   assert.ok(state.registrationScope)
   await captureScopedSubscription(state.registrationScope, 'original', 'app')
   await assert.rejects(captureScopedSubscription(state.registrationScope, 'replacement', 'app'), /requires reconciliation/)
+})
+
+test('upgrade moves the existing UUID and canonical binding out of backed-up document storage', async () => {
+  const scope = (await prepareRegistrationScope(config.apiBaseUrl, config.appId, config.appKey)).registrationScope
+
+  assert.ok(scope)
+  await acknowledgeRegistrationScope(scope, 'original-device', uuid)
+  const statePath = STATE_PATH
+
+  files.set('/document/bubbles-notifications-expo-state.json', files.get(statePath) as string)
+  files.delete(statePath)
+  files.set('/document/bubbles-notifications-installation-id.txt', uuid)
+  const identity = await resolveRegistrationIdentity(config)
+
+  assert.equal(identity.installationId, uuid)
+  assert.equal(identity.deviceId, 'original-device')
+  assert.equal(generations, 0)
+  assert.equal(files.has('/document/bubbles-notifications-installation-id.txt'), false)
+  assert.equal(files.has('/document/bubbles-notifications-expo-state.json'), false)
+  assert.equal(files.get(IDENTITY_PATH), uuid)
 })
