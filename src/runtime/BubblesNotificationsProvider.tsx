@@ -330,6 +330,7 @@ export function BubblesNotificationsProvider (
 
     if (isRetiredBubblesProvider(owner)) return
     const revoke = () => {
+      logoutOwnershipRef.current.suspendOwnership()
       isMountedRef.current = false
       lifecycleVersionRef.current += 1
       maintenancePendingRef.current = false
@@ -356,8 +357,8 @@ export function BubblesNotificationsProvider (
       throw error
     }
 
-    logoutOwnershipRef.current.acceptOwnership()
     isMountedRef.current = true
+    logoutOwnershipRef.current.acceptOwnership()
     setState((current) => current.notificationsEnabled
       ? { ...current, notificationsEnabled: false }
       : current)
@@ -570,11 +571,19 @@ export function BubblesNotificationsProvider (
   registerDeviceRef.current = registerDevice
 
   async function logout (): Promise<void> {
+    const operationId = ++desiredOperationRef.current
+
+    return logoutOwnershipRef.current.runLogout(() => beginLogout(operationId))
+  }
+
+  function beginLogout (operationId: number): Promise<void> {
     assertCurrentProvider()
+    if (!isCurrentBubblesProvider(providerOwnerRef.current)) {
+      failWithBubblesError('Logout requires successful BubblesNotificationsProvider ownership acquisition.')
+    }
     const configuration = providerConfigurationRef.current
     const lifecycleVersion = lifecycleVersionRef.current
     const isCurrent = () => isMountedRef.current && lifecycleVersionRef.current === lifecycleVersion
-    const operationId = ++desiredOperationRef.current
 
     sessionSuspendedRef.current = true
     pendingEnrollmentRef.current = null
@@ -582,7 +591,7 @@ export function BubblesNotificationsProvider (
     clearLogoutRetry()
     setState((current) => ({ ...current, notificationsEnabled: false }))
     const deviceId = currentDeviceIdRef.current
-    const marked = logoutOwnershipRef.current.markLogout(() => markBubblesLogout(configuration, deviceId))
+    const marked = markBubblesLogout(configuration, deviceId)
     // Observe rejection immediately while the registration queue is draining.
     const markResult = marked.then(() => ({ error: null }), (error: unknown) => ({ error }))
 

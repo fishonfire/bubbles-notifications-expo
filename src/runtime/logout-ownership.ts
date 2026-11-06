@@ -1,48 +1,54 @@
 import { failWithBubblesError } from '../internal/errors'
 
-/** Gates logout persistence on ownership without delaying accepted storage marks. */
+/** Gates logout execution on ownership without delaying accepted storage marks. */
 export function createLogoutOwnershipGate () {
   let accepted = false
-  const pendingMarks = new Set<() => void>()
+  const pendingRequests = new Set<() => void>()
 
   function flushPending () {
-    for (const mark of [...pendingMarks]) mark()
+    for (const run of [...pendingRequests]) run()
   }
 
   function acceptOwnership () {
     accepted = true
     // Start storage mutations before stale enrollment continuations can bind
-    // their canonical ID. Acceptance remains valid after provider retirement.
+    // their canonical ID.
     flushPending()
   }
 
-  function markLogout (persist: () => Promise<void>): Promise<void> {
-    const markAcceptedLogout = () => {
+  function suspendOwnership () {
+    // Gate new requests; accepted operations already have their own promises
+    // and continue draining independently of subsequent ownership changes.
+    accepted = false
+  }
+
+  function runLogout (operation: () => Promise<void>): Promise<void> {
+    const runAcceptedLogout = () => {
       if (!accepted) {
         failWithBubblesError('Logout requires successful BubblesNotificationsProvider ownership acquisition.')
       }
 
-      return persist()
+      return operation()
     }
 
-    if (accepted) return markAcceptedLogout()
+    if (accepted) return runAcceptedLogout()
 
     return new Promise<void>((resolve, reject) => {
-      const mark = () => {
-        if (!pendingMarks.delete(mark)) return
+      const run = () => {
+        if (!pendingRequests.delete(run)) return
         try {
-          resolve(markAcceptedLogout())
+          resolve(runAcceptedLogout())
         } catch (error) {
           reject(error)
         }
       }
 
-      pendingMarks.add(mark)
+      pendingRequests.add(run)
       // Settle requests even if a descendant throws before acquisition runs.
       // After an acquisition flush, deleting the callback makes this a no-op.
-      void Promise.resolve().then(mark)
+      void Promise.resolve().then(run)
     })
   }
 
-  return { acceptOwnership, flushPending, markLogout }
+  return { acceptOwnership, suspendOwnership, flushPending, runLogout }
 }

@@ -951,3 +951,184 @@ test('a later child layout logout wins over initial enrollment waiting for owner
   assert.equal(required(contexts.get('current')).notificationsEnabled, false)
   assertListeners(1)
 })
+
+function LogoutFromLayout ({ onOperation }: { onOperation: (operation: Promise<void>) => void }) {
+  const context = required(useContext(BubblesNotificationsContext))
+  const currentContext = useRef(context)
+
+  useLayoutEffect(() => { currentContext.current = context }, [context])
+  useLayoutEffect(() => {
+    const operation = currentContext.current.logout()
+
+    void operation.catch(() => undefined)
+    onOperation(operation)
+  }, [onOperation])
+
+  return null
+}
+
+for (const configurationChange of ['migration', 'credentials', 'backend scope'] as const) {
+  test(`descendant layout logout after ${configurationChange} change uses the accepted configuration`, async () => {
+    acknowledgeStoredDevice()
+    const migration = migrationConfiguration(1000)
+    const root = await mount('current', { oneSignalMigration: migration })
+
+    await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'before-layout-logout' }) })
+    const changingBackendScope = configurationChange === 'backend scope'
+    const nextConfiguration = {
+      ...config,
+      ...(configurationChange === 'credentials' ? { appKey: 'layout-logout-new-key' } : {}),
+      ...(changingBackendScope ? { apiBaseUrl: 'https://layout-logout-backend.example', appId: 'layout-logout-app' } : {})
+    }
+    const nextMigration = configurationChange === 'migration' ? { ...migration, readinessTimeoutMs: 2000 } : migration
+    const expectedDeviceId = changingBackendScope ? 'new-scope-logout-device' : CURRENT_DEVICE_ID
+
+    // Model the binding selected by the newly committed backend/app scope.
+    // The provider's current-device ref still contains the outgoing binding.
+    if (changingBackendScope) {
+      native.stored = {
+        ...native.stored,
+        apiBaseUrl: nextConfiguration.apiBaseUrl,
+        appKey: nextConfiguration.appKey,
+        registrationScope: `${nextConfiguration.apiBaseUrl}/${nextConfiguration.appId}`,
+        deviceId: expectedDeviceId
+      }
+    }
+    const operations: Promise<void>[] = []
+    const onOperation = (operation: Promise<void>) => { operations.push(operation) }
+
+    await act(async () => {
+      root.update(<BubblesNotificationsProvider
+        {...nextConfiguration}
+        oneSignalMigration={nextMigration}
+      >
+        <LogoutFromLayout onOperation={onOperation} />
+
+        <Consumer name='current' />
+      </BubblesNotificationsProvider>)
+    })
+    let results: PromiseSettledResult<void>[] = []
+
+    await act(async () => { results = await Promise.allSettled(operations) })
+    await settle()
+    assert.deepEqual(results.map((result) => result.status), ['fulfilled'])
+    assert.deepEqual(native.update.mock.calls.map(([deviceId]) => deviceId), [expectedDeviceId])
+    assert.deepEqual(native.client.mock.calls.map(([configuration]) => configuration), [{ baseUrl: nextConfiguration.apiBaseUrl, appKey: nextConfiguration.appKey }])
+    assert.equal(native.mark.mock.calls[0][0], `${nextConfiguration.apiBaseUrl}/${nextConfiguration.appId}`)
+    assert.deepEqual(native.stored.pendingLogouts, {})
+    assert.equal(native.sync.mock.calls.length, 1, 'the layout logout must not re-enroll or enable an identity')
+    assert.equal(required(contexts.get('current')).notificationsEnabled, false)
+    assertListeners(1)
+  })
+}
+
+test('Strict Mode descendant layout logout accepts both effect setups and disables once', async () => {
+  acknowledgeStoredDevice()
+  const operations: Promise<void>[] = []
+  const onOperation = (operation: Promise<void>) => { operations.push(operation) }
+  let root!: ReactTestRenderer
+
+  await act(async () => {
+    root = create(<StrictMode><BubblesNotificationsProvider {...config}>
+      <LogoutFromLayout onOperation={onOperation} />
+
+      <Consumer name='current' />
+    </BubblesNotificationsProvider></StrictMode>)
+  })
+  roots.push(root)
+  let results: PromiseSettledResult<void>[] = []
+
+  await act(async () => { results = await Promise.allSettled(operations) })
+  await settle()
+  assert.equal(operations.length, 2)
+  assert.deepEqual(results.map((result) => result.status), ['fulfilled', 'fulfilled'])
+  assert.deepEqual(native.update.mock.calls.map(([deviceId]) => deviceId), [ACKNOWLEDGED_DEVICE_ID])
+  assert.deepEqual(native.stored.pendingLogouts, {})
+  assert.equal(native.sync.mock.calls.length, 0)
+  assert.equal(required(contexts.get('current')).notificationsEnabled, false)
+  assertListeners(1)
+})
+
+for (const ownerState of ['retired', 'unmounted'] as const) {
+  test(`logout from an already ${ownerState} provider rejects without persisting intent`, async () => {
+    acknowledgeStoredDevice()
+    const oldRoot = await mount('old')
+
+    await act(async () => { await required(contexts.get('old')).registerDevice({ userId: 'stale-logout-user' }) })
+    const oldContext = required(contexts.get('old'))
+    const callback = vi.fn()
+
+    if (ownerState === 'retired') {
+      await mount('current', { onNotificationResponse: callback })
+    } else {
+      await unmount(oldRoot)
+    }
+    const storedBeforeLogout = structuredClone(native.stored)
+
+    await assert.rejects(oldContext.logout(), /replac|unmount|owner|acquir/i)
+    await settle()
+    assert.equal(native.mark.mock.calls.length, 0)
+    assert.equal(native.update.mock.calls.length, 0)
+    assert.deepEqual(native.stored, storedBeforeLogout)
+    assertListeners(ownerState === 'retired' ? 1 : 0)
+    if (ownerState === 'retired') {
+      emit(native.responses, open())
+      assert.equal(callback.mock.calls.length, 1)
+    }
+  })
+}
+
+for (const logoutLast of [false, true]) {
+  test(`configuration-update layout commands preserve call order, logout last=${logoutLast}`, async () => {
+    acknowledgeStoredDevice()
+    const migration = migrationConfiguration(1000)
+    const root = await mount('current', { oneSignalMigration: migration })
+
+    await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'before-ordered-layout-update' }) })
+    const operations: Promise<void>[] = []
+
+    function OrderedLayoutCommands () {
+      const context = required(useContext(BubblesNotificationsContext))
+      const started = useRef(false)
+
+      useLayoutEffect(() => {
+        if (started.current) return
+        started.current = true
+        const register = () => context.registerDevice({ userId: 'after-ordered-layout-update' })
+        const logout = () => context.logout()
+        const commands = logoutLast ? [register, logout] : [logout, register]
+
+        for (const command of commands) {
+          const operation = command()
+
+          void operation.catch(() => undefined)
+          operations.push(operation)
+        }
+      }, [context])
+
+      return null
+    }
+
+    await act(async () => {
+      root.update(<BubblesNotificationsProvider
+        {...config}
+        oneSignalMigration={{ ...migration, readinessTimeoutMs: 2000 }}
+      >
+        <OrderedLayoutCommands />
+
+        <Consumer name='current' />
+      </BubblesNotificationsProvider>)
+    })
+    let results: PromiseSettledResult<void>[] = []
+
+    await act(async () => { results = await Promise.allSettled(operations) })
+    await settle()
+    assert.deepEqual(results.map((result) => result.status), ['fulfilled', 'fulfilled'])
+    assert.deepEqual(native.update.mock.calls.map(([deviceId]) => deviceId), [CURRENT_DEVICE_ID])
+    assert.deepEqual(native.stored.pendingLogouts, {})
+    assert.equal(native.sync.mock.calls.length, logoutLast ? 1 : 2)
+    if (!logoutLast) assert.equal(native.sync.mock.calls[1][0].userId, 'after-ordered-layout-update')
+    assert.equal(required(contexts.get('current')).notificationsEnabled, !logoutLast)
+    assertListeners(1)
+  })
+}
