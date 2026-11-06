@@ -610,9 +610,9 @@ export function BubblesNotificationsProvider (
     const markResult = marked.then(() => ({ error: null }), (error: unknown) => ({ error }))
 
     return runRegistration(async () => {
+      enrolledSessionRef.current = null
       if (isCurrent()) {
         enrollmentRequestVersionRef.current += 1
-        enrolledSessionRef.current = null
         setState((current) => ({ ...current, notificationsEnabled: false }))
         if (operationId === desiredOperationRef.current) pendingEnrollmentRef.current = null
         maintenanceRequestedRef.current = false
