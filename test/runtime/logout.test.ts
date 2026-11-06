@@ -4,6 +4,8 @@ import { beforeEach, afterEach, test, vi } from 'vitest'
 const fileContents = new Map<string, string>()
 const documentDirectory = '/mock/document'
 const storedStateUri = `${documentDirectory}/bubbles-notifications/bubbles-notifications-expo-state.json`
+const recoveryInstallationId = '4885590c-7ce2-444a-8bfb-5c2adba24296'
+const outgoingUser = 'outgoing-user'
 
 class MockFile {
   uri: string
@@ -80,7 +82,7 @@ vi.doMock('expo-file-system', () => ({
     document: documentDirectory
   }
 }))
-vi.doMock('expo-crypto', () => ({ randomUUID: () => '4885590c-7ce2-444a-8bfb-5c2adba24296' }))
+vi.doMock('expo-crypto', () => ({ randomUUID: () => recoveryInstallationId }))
 vi.doMock('../../src/runtime/device-attributes.ts', () => ({ collectBubblesDeviceAttributes: async () => ({}) }))
 vi.doMock('../../src/notifications/delivery-status.ts', () => ({ flushStoredBubblesDeliveryStatuses: async () => undefined }))
 
@@ -241,8 +243,6 @@ test('stale 404 recovery rebinds the old requested logout target to the returned
 })
 
 test('real 404 recovery POST followed by handover disables the new canonical ID instead of the missing old device', async () => {
-  const recoveryInstallationId = '4885590c-7ce2-444a-8bfb-5c2adba24296'
-
   await prepareRegistrationScope(configuration.apiBaseUrl, configuration.appId, configuration.appKey)
   await acknowledgeRegistrationScope(scope, knownDevice, recoveryInstallationId)
   let finishRecovery!: (response: Response) => void
@@ -258,7 +258,7 @@ test('real 404 recovery POST followed by handover disables the new canonical ID 
     return recoveryResponse
   })
   const registration = syncDeviceRegistrationState({
-    ...configuration, userId: 'outgoing-user', deviceId: knownDevice,
+    ...configuration, userId: outgoingUser, deviceId: knownDevice,
     registrationIdentity: { deviceId: knownDevice, registrationScope: scope, installationId: recoveryInstallationId, oneSignalSubscriptionId: null, oneSignalAppId: undefined },
     registrationState: { platform: 'android', tokenType: 'fcm', token: 'token', fid: 'fid', permissionStatus: 'granted', notificationsEnabled: true },
     isCurrent: () => current
@@ -288,6 +288,60 @@ test('real 404 recovery POST followed by handover disables the new canonical ID 
   assert.equal(state.registrationScope, getRegistrationScope(wrongBackend, configuration.appId))
 })
 
+test('repeated logout after a failed stale recovery disable retains the canonical target instead of a stale snapshot', async () => {
+  await prepareRegistrationScope(configuration.apiBaseUrl, configuration.appId, configuration.appKey)
+  await acknowledgeRegistrationScope(scope, knownDevice, recoveryInstallationId)
+  let finishRecovery!: (response: Response) => void
+  let markRecoveryStarted!: () => void
+  const recoveryStarted = new Promise<void>(resolve => { markRecoveryStarted = resolve })
+  const recoveryResponse = new Promise<Response>(resolve => { finishRecovery = resolve })
+  let current = true
+  let canonicalEnabled: boolean
+
+  fetchMock.mockImplementation(async (url) => {
+    if (url === `${configuration.apiBaseUrl}/api/devices/${knownDevice}`) return new Response('{}', { status: 404 })
+    assert.equal(url, `${configuration.apiBaseUrl}/api/devices/${canonicalDevice}`)
+    canonicalEnabled = false
+
+    return new Response('{}', { status: 200 })
+  })
+  fetchMock.mockResolvedValueOnce(new Response('{}', { status: 404 }))
+  fetchMock.mockImplementationOnce(async () => {
+    markRecoveryStarted()
+
+    return recoveryResponse
+  })
+  fetchMock.mockRejectedValueOnce(new Error('canonical disable offline'))
+  const registration = syncDeviceRegistrationState({
+    ...configuration, userId: outgoingUser, deviceId: knownDevice,
+    registrationIdentity: { deviceId: knownDevice, registrationScope: scope, installationId: recoveryInstallationId, oneSignalSubscriptionId: null, oneSignalAppId: undefined },
+    registrationState: { platform: 'android', tokenType: 'fcm', token: 'token', fid: 'fid', permissionStatus: 'granted', notificationsEnabled: true },
+    isCurrent: () => current
+  })
+  const rejectedRegistration = assert.rejects(registration, /canonical disable offline/)
+
+  await recoveryStarted
+  await markBubblesLogout(configuration, knownDevice)
+  current = false
+  await prepareRegistrationScope(wrongBackend, configuration.appId, configuration.appKey)
+  canonicalEnabled = true
+  finishRecovery(new Response(JSON.stringify({ id: canonicalDevice, installation_id: recoveryInstallationId }), {
+    status: 200, headers: { 'Content-Type': 'application/json' }
+  }))
+  await rejectedRegistration
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], canonicalDevice)
+  await markBubblesLogout(configuration, knownDevice)
+  await retryBubblesLogout(configuration)
+  assert.equal(canonicalEnabled, false)
+  assert.equal(fetchMock.mock.calls[3][0], `${configuration.apiBaseUrl}/api/devices/${canonicalDevice}`)
+  assert.deepEqual(JSON.parse(String(fetchMock.mock.calls[3][1]?.body)), { notifications_enabled: false })
+  const state = await readStoredDeviceStateAsync()
+
+  assert.equal(state.pendingLogouts?.[scope], undefined)
+  assert.equal(state.deviceId, null)
+  assert.equal(state.registrationScope, getRegistrationScope(wrongBackend, configuration.appId))
+})
+
 test('legacy upgrade logout follows a stale first reconciliation to its returned canonical device', async () => {
   fileContents.set(storedStateUri, JSON.stringify({ version: 1, deviceId: legacyDevice, apiBaseUrl: configuration.apiBaseUrl, appKey: configuration.appKey }))
   const identity = await resolveRegistrationIdentity(configuration)
@@ -306,7 +360,7 @@ test('legacy upgrade logout follows a stale first reconciliation to its returned
     return enrollmentResponse
   })
   const registration = syncDeviceRegistrationState({
-    ...configuration, userId: 'outgoing-user', deviceId: null, registrationIdentity: identity,
+    ...configuration, userId: outgoingUser, deviceId: null, registrationIdentity: identity,
     registrationState: { platform: 'android', tokenType: 'fcm', token: 'token', fid: 'fid', permissionStatus: 'granted', notificationsEnabled: true },
     isCurrent: () => current
   })
@@ -359,10 +413,24 @@ test('legacy target rebinding requires an existing intent matching the same scop
 test('preserves a known target when marked again without an ID and conditionally clears', async () => {
   await markPendingLogout(scope, knownDevice)
   await markPendingLogout(scope, null)
+  await markPendingLogout(scope, 'stale-device')
   await clearPendingLogout(scope, 'older-device')
   assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], knownDevice)
   await clearPendingLogout(scope, knownDevice)
   assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], undefined)
+})
+
+test('a repeated logout fills an unknown target without changing another scope intent', async () => {
+  const otherScope = getRegistrationScope(wrongBackend, configuration.appId)
+
+  await markPendingLogout(otherScope, canonicalDevice)
+  await markPendingLogout(scope, null)
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], null)
+  await markPendingLogout(scope, knownDevice)
+  const state = await readStoredDeviceStateAsync()
+
+  assert.equal(state.pendingLogouts?.[scope], knownDevice)
+  assert.equal(state.pendingLogouts?.[otherScope], canonicalDevice)
 })
 
 test('loads older metadata without requiring pending logout state', async () => {

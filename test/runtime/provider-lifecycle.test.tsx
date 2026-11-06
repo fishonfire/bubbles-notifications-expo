@@ -81,7 +81,12 @@ vi.doMock('../../src/storage/device-state', () => ({
   },
   markPendingLogout: async (scope: string, deviceId: string | null) => {
     native.mark(scope, deviceId)
-    native.stored.pendingLogouts = { ...native.stored.pendingLogouts, [scope]: deviceId }
+    // Mirror the atomic storage contract: a bound pending canonical target
+    // takes priority over a later provider snapshot. Actual storage is tested
+    // separately; this suite verifies the provider's stale-argument lifecycle.
+    const scopedTarget = native.stored.registrationScope === scope ? native.stored.deviceId : native.stored.legacyLogoutTargets?.[scope] ?? null
+
+    native.stored.pendingLogouts = { ...native.stored.pendingLogouts, [scope]: native.stored.pendingLogouts?.[scope] ?? deviceId ?? scopedTarget }
   },
   clearPendingLogout: async (scope: string) => { delete native.stored.pendingLogouts?.[scope] },
   bindPendingLogoutTarget: async (scope: string, deviceId: string, previousDeviceId?: string | null) => {
@@ -174,7 +179,7 @@ beforeEach(async () => {
   native.mark.mockClear()
   native.bind.mockClear()
   native.schedule.mockClear()
-  native.update.mockClear()
+  native.update.mockReset().mockResolvedValue(undefined)
   contexts.clear()
 })
 afterEach(async () => {
@@ -1132,3 +1137,60 @@ for (const logoutLast of [false, true]) {
     assertListeners(1)
   })
 }
+
+test('a repeated logout from stale provider state keeps retrying the recovered canonical identity', async () => {
+  const canonicalDeviceId = 'repeated-logout-canonical-device'
+  const disableError = new Error('Canonical disable is temporarily unavailable')
+
+  acknowledgeStoredDevice()
+  const migration = migrationConfiguration(1000)
+  const root = await mount('current', { oneSignalMigration: migration })
+  let release!: (value: { action: string; deviceId: string }) => void
+  const response = new Promise<{ action: string; deviceId: string }>((resolve) => { release = resolve })
+  const operations: Promise<void>[] = []
+
+  native.sync.mockImplementationOnce(() => response)
+  native.update.mockImplementation(async (deviceId) => {
+    if (deviceId === canonicalDeviceId) throw disableError
+    throw Object.assign(new Error('The obsolete device no longer exists'), { status: 404 })
+  })
+  try {
+    await act(async () => {
+      const registration = required(contexts.get('current')).registerDevice({ userId: 'repeated-logout-user' })
+
+      void registration.catch(() => undefined)
+      operations.push(registration)
+    })
+    await settle()
+    assert.equal(native.sync.mock.calls[0][0].deviceId, ACKNOWLEDGED_DEVICE_ID)
+    await act(async () => {
+      const logout = required(contexts.get('current')).logout()
+
+      void logout.catch(() => undefined)
+      operations.push(logout)
+    })
+    await act(async () => { root.update(tree('current', { oneSignalMigration: { ...migration, readinessTimeoutMs: 2000 } })) })
+  } finally {
+    await act(async () => { release({ action: 'created', deviceId: canonicalDeviceId }); await Promise.allSettled(operations) })
+    await settle()
+  }
+  const scope = `${config.apiBaseUrl}/${config.appId}`
+
+  assert.equal(native.stored.pendingLogouts?.[scope], canonicalDeviceId)
+  assert.equal(native.stored.deviceId, ACKNOWLEDGED_DEVICE_ID, 'the stale result must not acknowledge a new binding')
+  const marksBeforeRepeatedLogout = native.mark.mock.calls.length
+  const disablesBeforeRepeatedLogout = native.update.mock.calls.length
+
+  await act(async () => { await assert.rejects(required(contexts.get('current')).logout(), disableError) })
+  await settle()
+  assert.equal(native.mark.mock.calls[marksBeforeRepeatedLogout][1], ACKNOWLEDGED_DEVICE_ID, 'bootstrap must reproduce the stale in-memory target passed by the provider')
+  assert.deepEqual(native.update.mock.calls.slice(disablesBeforeRepeatedLogout).map(([deviceId]) => deviceId), [canonicalDeviceId])
+  assert.equal(native.stored.pendingLogouts?.[scope], canonicalDeviceId)
+  assert.equal(required(contexts.get('current')).notificationsEnabled, false)
+  native.update.mockResolvedValue(undefined)
+  await act(async () => { await required(contexts.get('current')).logout() })
+  await settle()
+  assert.equal(native.update.mock.calls[native.update.mock.calls.length - 1][0], canonicalDeviceId)
+  assert.deepEqual(native.stored.pendingLogouts, {})
+  assertListeners(1)
+})

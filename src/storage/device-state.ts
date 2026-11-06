@@ -619,9 +619,11 @@ function resolveLogoutTarget (state: StoredDeviceState, scope: string, appKey?: 
 
 /** Record logout before draining a registration that may still establish its canonical ID. */
 export async function markPendingLogout (scope: string, deviceId: string | null, appKey?: string): Promise<void> {
+  // A bound target can be newer than the caller's device snapshot. Preserve it
+  // until disable succeeds; acknowledgement or binding can advance it instead.
   await updateState((state) => ({
     ...state,
-    pendingLogouts: { ...state.pendingLogouts, [scope]: deviceId ?? state.pendingLogouts?.[scope] ?? resolveLogoutTarget(state, scope, appKey) }
+    pendingLogouts: { ...state.pendingLogouts, [scope]: state.pendingLogouts?.[scope] ?? deviceId ?? resolveLogoutTarget(state, scope, appKey) }
   }))
 }
 
