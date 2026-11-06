@@ -63,7 +63,9 @@ export function observeBubblesDeviceTokenRefresh (
         return
       }
 
-      unsubscribe = onTokenRefresh(getMessaging(), listener)
+      unsubscribe = onTokenRefresh(getMessaging(), (token) => {
+        if (!isCancelled) listener(token)
+      })
 
       if (isCancelled) {
         unsubscribe()

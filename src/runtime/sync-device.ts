@@ -4,8 +4,10 @@ import {
   updateBubblesDeviceAttributes
 } from '../api/device-client'
 import {
-  acknowledgeRegistrationScope
+  acknowledgeRegistrationScope,
+  bindPendingLogoutTarget
 } from '../storage/device-state'
+import { retryBubblesLogout } from './logout'
 import { flushStoredBubblesDeliveryStatuses } from '../notifications/delivery-status'
 
 import {
@@ -112,12 +114,13 @@ function buildRuntimeSnapshot (
 async function syncBubblesDeviceAttributes (
   apiBaseUrl: string,
   appKey: string,
-  deviceId: string
+  deviceId: string,
+  isCurrent?: () => boolean
 ): Promise<BubblesDeviceAttributeSyncResult> {
   try {
     const attributes = await collectBubblesDeviceAttributes()
 
-    if (Object.keys(attributes).length === 0) {
+    if ((isCurrent && !isCurrent()) || Object.keys(attributes).length === 0) {
       return { status: 'skipped', error: null }
     }
 
@@ -177,9 +180,21 @@ export async function syncDeviceRegistrationState (
     const nextDeviceId = syncResult.deviceId
 
     if (!nextDeviceId) throw new Error('Backend registration did not return a canonical device ID.')
-    if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
-    const storedDeviceState = await acknowledgeRegistrationScope(identity.registrationScope, nextDeviceId,
-      identity.installationId, identity.oneSignalSubscriptionId, identity.oneSignalAppId, options.isCurrent)
+    let storedDeviceState
+
+    try {
+      if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+      storedDeviceState = await acknowledgeRegistrationScope(identity.registrationScope, nextDeviceId,
+        identity.installationId, identity.oneSignalSubscriptionId, identity.oneSignalAppId, options.isCurrent)
+    } catch (error) {
+      // The POST may have enabled a device even though its provider retired.
+      // Retain its validated canonical ID for later logout without acknowledging
+      // the stale session or overwriting the replacement's registration scope.
+      if (await bindPendingLogoutTarget(identity.registrationScope, nextDeviceId, identity.logoutDeviceId ?? identity.deviceId)) {
+        await retryBubblesLogout({ apiBaseUrl, appId: options.appId, appKey })
+      }
+      throw error
+    }
 
     let attributeSync: BubblesDeviceAttributeSyncResult = {
       status: 'skipped',
@@ -187,8 +202,9 @@ export async function syncDeviceRegistrationState (
     }
 
     if (nextDeviceId) {
-      const syncAttributes = () => syncBubblesDeviceAttributes(apiBaseUrl, appKey, nextDeviceId)
+      const syncAttributes = () => syncBubblesDeviceAttributes(apiBaseUrl, appKey, nextDeviceId, options.isCurrent)
       const flushDeliveryStatuses = async () => {
+        if (options.isCurrent && !options.isCurrent()) return
         try {
           await flushStoredBubblesDeliveryStatuses(storedDeviceState)
         } catch (error) {

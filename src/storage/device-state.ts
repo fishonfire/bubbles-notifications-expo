@@ -23,6 +23,8 @@ export interface StoredDeviceState {
   acknowledgedInstallationId?: string;
   pendingLogouts?: Record<string, string | null>;
   legacyLogoutTargets?: Record<string, string>;
+  /** Validated retired registration results, retained solely for logout. */
+  registrationLogoutTargets?: Record<string, string>;
 }
 
 export type StoredDeviceStateUpdate = Partial<StoredDeviceState>
@@ -39,6 +41,7 @@ type PersistedStoredDeviceState = {
   acknowledgedInstallationId?: string;
   pendingLogouts?: Record<string, string | null>
   legacyLogoutTargets?: Record<string, string>
+  registrationLogoutTargets?: Record<string, string>
 }
 
 type StoredDeviceStateUpdater = (
@@ -77,12 +80,12 @@ function normalizePendingLogouts (value: unknown): Record<string, string | null>
   }))
 }
 
-function normalizeLegacyLogoutTargets (value: unknown): Record<string, string> {
-  if (!isPlainObject(value)) failWithBubblesError('Stored legacy logout targets must be an object.')
+function normalizeScopedLogoutTargets (value: unknown, source: 'legacy' | 'registration'): Record<string, string> {
+  if (!isPlainObject(value)) failWithBubblesError(`Stored ${source} logout targets must be an object.`)
 
   return Object.fromEntries(Object.entries(value).map(([scope, target]) => {
     if (typeof target !== 'string' || !target.trim()) {
-      failWithBubblesError('Stored legacy logout target must be a non-empty string.')
+      failWithBubblesError(`Stored ${source} logout target must be a non-empty string.`)
     }
 
     return [scope, target.trim()]
@@ -101,7 +104,8 @@ function normalizeStoredDeviceState (
 
   return {
     ...(value.pendingLogouts === undefined ? {} : { pendingLogouts: normalizePendingLogouts(value.pendingLogouts) }),
-    ...(value.legacyLogoutTargets === undefined ? {} : { legacyLogoutTargets: normalizeLegacyLogoutTargets(value.legacyLogoutTargets) }),
+    ...(value.legacyLogoutTargets === undefined ? {} : { legacyLogoutTargets: normalizeScopedLogoutTargets(value.legacyLogoutTargets, 'legacy') }),
+    ...(value.registrationLogoutTargets === undefined ? {} : { registrationLogoutTargets: normalizeScopedLogoutTargets(value.registrationLogoutTargets, 'registration') }),
     deviceId: getOptionalNonEmptyString(value.deviceId, 'deviceId'),
     apiBaseUrl: getOptionalNonEmptyString(value.apiBaseUrl, 'apiBaseUrl'),
     appKey: getOptionalNonEmptyString(value.appKey, 'appKey'),
@@ -121,8 +125,12 @@ function normalizeStoredDeviceStateUpdate (
 
   const nextState: StoredDeviceStateUpdate = {}
 
+  if ('registrationLogoutTargets' in value) {
+    nextState.registrationLogoutTargets = normalizeScopedLogoutTargets(value.registrationLogoutTargets, 'registration')
+  }
+
   if ('legacyLogoutTargets' in value) {
-    nextState.legacyLogoutTargets = normalizeLegacyLogoutTargets(value.legacyLogoutTargets)
+    nextState.legacyLogoutTargets = normalizeScopedLogoutTargets(value.legacyLogoutTargets, 'legacy')
   }
 
   if ('pendingLogouts' in value) {
@@ -162,6 +170,10 @@ function serializeStoredDeviceState (
 ): PersistedStoredDeviceState {
   const serializedState: PersistedStoredDeviceState = {
     version: STORED_DEVICE_STATE_VERSION
+  }
+
+  if (state.registrationLogoutTargets) {
+    serializedState.registrationLogoutTargets = state.registrationLogoutTargets
   }
 
   if (state.legacyLogoutTargets) {
@@ -567,6 +579,7 @@ export async function prepareRegistrationScope (apiBaseUrl: string, appId: strin
 
     return { ...EMPTY_STORED_DEVICE_STATE,
       ...(legacyLogoutTargets ? { legacyLogoutTargets } : {}),
+      ...(state.registrationLogoutTargets ? { registrationLogoutTargets: state.registrationLogoutTargets } : {}),
       ...(pendingLogouts ? { pendingLogouts } : {}),
       apiBaseUrl, appKey, registrationScope, identityAcknowledged: false }
   })
@@ -584,10 +597,13 @@ export async function acknowledgeRegistrationScope (
     if ((isCurrent && !isCurrent()) || state.registrationScope !== registrationScope) failWithBubblesError('Registration configuration changed before identity acknowledgement.')
 
     const legacyLogoutTargets = state.legacyLogoutTargets && { ...state.legacyLogoutTargets }
+    const registrationLogoutTargets = state.registrationLogoutTargets && { ...state.registrationLogoutTargets }
 
     if (legacyLogoutTargets) delete legacyLogoutTargets[registrationScope]
+    if (registrationLogoutTargets) delete registrationLogoutTargets[registrationScope]
 
     return { ...state, ...(legacyLogoutTargets ? { legacyLogoutTargets } : {}),
+      ...(registrationLogoutTargets ? { registrationLogoutTargets } : {}),
       ...(state.pendingLogouts && Object.prototype.hasOwnProperty.call(state.pendingLogouts, registrationScope)
         ? { pendingLogouts: { ...state.pendingLogouts, [registrationScope]: deviceId } }
         : {}),
@@ -607,6 +623,7 @@ export async function captureScopedSubscription (registrationScope: string, oneS
 }
 
 function resolveLogoutTarget (state: StoredDeviceState, scope: string, appKey?: string): string | null {
+  if (state.registrationLogoutTargets?.[scope]) return state.registrationLogoutTargets[scope]
   if (state.registrationScope === scope && state.deviceId) return state.deviceId
   if (!state.registrationScope && state.apiBaseUrl && state.appKey === appKey) {
     const [, appId] = JSON.parse(scope) as [string, string]
@@ -619,10 +636,34 @@ function resolveLogoutTarget (state: StoredDeviceState, scope: string, appKey?: 
 
 /** Record logout before draining a registration that may still establish its canonical ID. */
 export async function markPendingLogout (scope: string, deviceId: string | null, appKey?: string): Promise<void> {
+  // A bound target can be newer than the caller's device snapshot. Preserve it
+  // until disable succeeds; acknowledgement or binding can advance it instead.
   await updateState((state) => ({
     ...state,
-    pendingLogouts: { ...state.pendingLogouts, [scope]: deviceId ?? state.pendingLogouts?.[scope] ?? resolveLogoutTarget(state, scope, appKey) }
+    pendingLogouts: { ...state.pendingLogouts, [scope]: state.pendingLogouts?.[scope] ?? resolveLogoutTarget(state, scope, appKey) ?? deviceId }
   }))
+}
+
+/** Preserve a drained enrollment's logout target without reviving its session. */
+export async function bindPendingLogoutTarget (scope: string, deviceId: string, previousDeviceId?: string | null): Promise<boolean> {
+  let hasPendingLogout = false
+
+  await updateState((state) => {
+    hasPendingLogout = !!state.pendingLogouts && Object.prototype.hasOwnProperty.call(state.pendingLogouts, scope)
+
+    const pendingTarget = state.pendingLogouts?.[scope]
+    // Even without logout intent, a later replacement may need this canonical
+    // target. Keep it separate from the acknowledged enrollment/session state.
+    const nextState = { ...state, registrationLogoutTargets: { ...state.registrationLogoutTargets, [scope]: deviceId } }
+
+    if (!hasPendingLogout || (pendingTarget !== null &&
+      pendingTarget !== state.legacyLogoutTargets?.[scope] &&
+      (previousDeviceId == null || pendingTarget !== previousDeviceId))) return nextState
+
+    return { ...nextState, pendingLogouts: { ...state.pendingLogouts, [scope]: deviceId } }
+  })
+
+  return hasPendingLogout
 }
 
 export async function clearPendingLogout (scope: string, expectedTarget: string | null): Promise<void> {

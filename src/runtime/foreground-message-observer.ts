@@ -63,9 +63,11 @@ export function observeBubblesForegroundMessages (): () => void {
     }
   }
 
+  let active = true
   const unsubscribe = onMessage(
     getMessaging(),
     (remoteMessage) => {
+      if (!active) return
       void handleFirebaseForegroundMessage(remoteMessage).catch(
         (error) => {
           console.error(
@@ -78,6 +80,7 @@ export function observeBubblesForegroundMessages (): () => void {
   )
 
   return () => {
+    active = false
     unsubscribe()
   }
 }

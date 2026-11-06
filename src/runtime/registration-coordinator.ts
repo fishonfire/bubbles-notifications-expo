@@ -13,7 +13,19 @@ import {
   type RuntimeStateUpdate
 } from './provider-state'
 
-type RegistrationOperation = () => Promise<RuntimeStateUpdate | void>
+type RegistrationOperation = () => Promise<Partial<RuntimeStateUpdate> | void>
+
+// A native React root can be replaced before its effects clean up. Keep I/O
+// serialized for the JS runtime, rather than for an individual React provider.
+let registrationTail: Promise<void> = Promise.resolve()
+
+export function enqueueBubblesRegistration<T> (operation: () => Promise<T>): Promise<T> {
+  const registration = registrationTail.then(operation)
+
+  registrationTail = registration.then(() => undefined, () => undefined)
+
+  return registration
+}
 
 function getFailedRuntimeState (error: unknown): Partial<RuntimeStateUpdate> {
   return error instanceof BubblesNotificationsSyncError
@@ -27,12 +39,18 @@ export function useBubblesRegistrationCoordinator (
   >
 ) {
   const isMountedRef = useRef(true)
+  const generationRef = useRef(0)
+  const invalidateRegistrations = useCallback(() => { generationRef.current += 1 }, [])
   const pendingRegistrationsRef = useRef(0)
   const currentRegistrationRef = useRef<Promise<void> | null>(null)
 
   const runRegistration = useCallback((
-    operation: RegistrationOperation
+    operation: RegistrationOperation,
+    options?: { durable?: boolean }
   ): Promise<void> => {
+    const generation = generationRef.current
+    const isCurrent = () => isMountedRef.current && generationRef.current === generation
+
     pendingRegistrationsRef.current += 1
 
     setState((currentState) => ({
@@ -41,12 +59,16 @@ export function useBubblesRegistrationCoordinator (
       error: null
     }))
 
-    const previousRegistration = currentRegistrationRef.current
-    const registration = (previousRegistration ?? Promise.resolve())
-      .then(operation)
+    const registration = enqueueBubblesRegistration(async () => {
+      // Logout intent must drain even when its originating React root retires.
+      // Its result/error updates still obey the generation checks below.
+      if (!options?.durable && !isCurrent()) return
+
+      return operation()
+    })
       .then(
         (result) => {
-          if (!isMountedRef.current) {
+          if (!isCurrent()) {
             return
           }
 
@@ -60,7 +82,7 @@ export function useBubblesRegistrationCoordinator (
           const normalizedError = normalizeProviderError(error)
           const failedRuntimeState = getFailedRuntimeState(error)
 
-          if (isMountedRef.current) {
+          if (isCurrent()) {
             setState((currentState) => ({
               ...currentState,
               ...failedRuntimeState,
@@ -74,6 +96,8 @@ export function useBubblesRegistrationCoordinator (
       .finally(() => {
         pendingRegistrationsRef.current -= 1
 
+        // Pending work belongs to this hook instance even when its results
+        // belong to an invalidated generation (for example a config change).
         if (isMountedRef.current) {
           setState((currentState) => ({
             ...currentState,
@@ -102,6 +126,7 @@ export function useBubblesRegistrationCoordinator (
 
   return {
     isMountedRef,
+    invalidateRegistrations,
     runRegistration,
     waitForCurrentRegistration
   }

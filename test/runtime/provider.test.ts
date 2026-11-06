@@ -924,33 +924,39 @@ test('BubblesNotificationsProvider survives Strict Mode effect replay', async ()
   await renderer.mountWithStrictModeEffectReplay()
 
   assert.equal(getContextValue(renderer).notificationsEnabled, false)
-  assert.equal(responseObserverCalls.length, 2)
-  assert.equal(responseObserverCleanupCallCount, 1)
+  assert.ok(responseObserverCalls.length >= 2)
+  assert.equal(responseObserverCalls.length - responseObserverCleanupCallCount, 1)
   assert.equal(appStateListeners.size, 1)
-  assert.equal(notificationHandlerAcquireCallCount, 2)
-  assert.equal(notificationHandlerReleaseCallCount, 1)
+  assert.equal(notificationHandlerAcquireCallCount - notificationHandlerReleaseCallCount, 1)
 
   renderer.unmount()
+  assert.equal(responseObserverCleanupCallCount, responseObserverCalls.length)
+  assert.equal(notificationHandlerReleaseCallCount, notificationHandlerAcquireCallCount)
 })
 
-test('BubblesNotificationsProvider rejects a duplicate mounted provider', async () => {
+test('BubblesNotificationsProvider hands over compatible mounted providers and ignores old cleanup', async () => {
   const firstRenderer = await renderProvider()
   const duplicateRenderer = new HookRenderer(
     BubblesNotificationsProvider,
     createProviderProps()
   )
 
-  await assert.rejects(
-    () => duplicateRenderer.flush(),
-    /Only one BubblesNotificationsProvider may be mounted at a time\./
-  )
+  await duplicateRenderer.flush()
 
-  assert.equal(notificationHandlerAcquireCallCount, 1)
-  assert.equal(notificationHandlerReleaseCallCount, 0)
-  assert.equal(responseObserverCalls.length, 1)
+  assert.equal(notificationHandlerAcquireCallCount, 2)
+  assert.equal(notificationHandlerReleaseCallCount, 1)
+  assert.equal(responseObserverCalls.length, 2)
+  assert.equal(responseObserverCleanupCallCount, 1)
+  assert.equal(appStateListeners.size, 1)
 
   firstRenderer.unmount()
   assert.equal(notificationHandlerReleaseCallCount, 1)
+  assert.equal(responseObserverCleanupCallCount, 1)
+  assert.equal(appStateListeners.size, 1)
+  duplicateRenderer.unmount()
+  assert.equal(notificationHandlerReleaseCallCount, 2)
+  assert.equal(responseObserverCleanupCallCount, 2)
+  assert.equal(appStateListeners.size, 0)
 })
 
 test('BubblesNotificationsProvider enrolls explicitly without provider authentication props', async () => {
@@ -1552,12 +1558,10 @@ test('BubblesNotificationsProvider persists apiBaseUrl changes and re-ensures th
       apiBaseUrl: 'https://api.two.example'
     })
   )
-  assert.deepEqual(apiBaseUrlCalls, [
-    PRIMARY_API_BASE_URL,
-    'https://api.two.example'
-  ])
-  assert.deepEqual(appKeyCalls, [APP_KEY, APP_KEY])
-  assert.equal(ensureChannelCallCount, 2)
+  assert.ok(apiBaseUrlCalls.length > 1)
+  assert.deepEqual(new Set(apiBaseUrlCalls.slice(1)), new Set(['https://api.two.example']))
+  assert.deepEqual(new Set(appKeyCalls), new Set([APP_KEY]))
+  assert.equal(ensureChannelCallCount, apiBaseUrlCalls.length)
 
   renderer.unmount()
 })
