@@ -64,6 +64,35 @@ test('retired providers cannot reacquire on rerender while sequential effect rep
   assert.equal(isCurrentBubblesProvider(first), false)
 })
 
+test.each([false, true])('a released owner cannot reclaim ownership after a replacement (different configuration: %s)', async (differentConfiguration) => {
+  const { acquireBubblesProviderOwnership, isCurrentBubblesProvider, isRetiredBubblesProvider } = await import('../../src/runtime/provider-ownership')
+  const hiddenOwner = {}
+  const replacementOwner = {}
+  const revokeHidden = vi.fn()
+  const revokeReplacement = vi.fn()
+  const releaseHidden = acquireBubblesProviderOwnership(hiddenOwner, configuration, revokeHidden)
+
+  releaseHidden()
+  assert.equal(isRetiredBubblesProvider(hiddenOwner), false)
+  const replacementConfiguration = differentConfiguration ? { ...configuration, appId: 2 } : configuration
+  const releaseReplacement = acquireBubblesProviderOwnership(replacementOwner, replacementConfiguration, revokeReplacement)
+
+  assert.equal(isRetiredBubblesProvider(hiddenOwner), true)
+  assert.equal(revokeHidden.mock.calls.length, 1)
+  const releaseStaleReveal = acquireBubblesProviderOwnership(hiddenOwner, configuration, vi.fn())
+
+  releaseHidden()
+  releaseStaleReveal()
+  assert.equal(isCurrentBubblesProvider(replacementOwner), true)
+  assert.equal(revokeReplacement.mock.calls.length, 0)
+  releaseReplacement()
+  assert.equal(revokeReplacement.mock.calls.length, 1)
+  const releaseAfterFinalCleanup = acquireBubblesProviderOwnership(hiddenOwner, configuration, vi.fn())
+
+  assert.equal(isCurrentBubblesProvider(hiddenOwner), false)
+  releaseAfterFinalCleanup()
+})
+
 test('conflicting configuration is rejected without revoking the current provider', async () => {
   const { acquireBubblesProviderOwnership, isCurrentBubblesProvider } = await import('../../src/runtime/provider-ownership')
   const owner = {}

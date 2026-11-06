@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { StrictMode, useContext, useLayoutEffect, useRef } from 'react'
+import { Suspense, StrictMode, useContext, useEffect, useLayoutEffect, useRef } from 'react'
 import { afterEach, beforeEach, test, vi } from 'vitest'
 import type { BubblesNotificationsContextValue, BubblesNotificationsProviderProps } from '../../src/runtime/context'
 import type { StoredDeviceState } from '../../src/storage/device-state'
@@ -10,6 +10,7 @@ const ACKNOWLEDGED_DEVICE_ID = 'acknowledged-device'
 
 type Listener = (value: never) => void
 const native = vi.hoisted(() => ({
+  currentState: 'active',
   messages: new Set<Listener>(), responses: new Set<Listener>(), tokens: new Set<Listener>(), appStates: new Set<Listener>(),
   flush: vi.fn(async (_state?: StoredDeviceState): Promise<void> => undefined),
   token: vi.fn(async () => 'token-current'),
@@ -17,6 +18,7 @@ const native = vi.hoisted(() => ({
   client: vi.fn(),
   mark: vi.fn(),
   bind: vi.fn(),
+  lastResponse: null as ReturnType<typeof open> | null,
   schedule: vi.fn(async () => 'local-id'),
   handler: null as null | { handleNotification: () => Promise<Record<string, boolean>> },
   sync: vi.fn(async (_options: Record<string, unknown>) => ({ action: 'created', deviceId: 'initial-device' })),
@@ -37,7 +39,7 @@ function subscribe (listeners: Set<Listener>, listener: Listener) {
 }
 vi.doMock('react-native', () => ({
   Platform: { OS: 'android' },
-  AppState: { currentState: 'active', addEventListener: (_event: string, listener: Listener) => ({ remove: subscribe(native.appStates, listener) }) }
+  AppState: { get currentState () { return native.currentState }, addEventListener: (_event: string, listener: Listener) => ({ remove: subscribe(native.appStates, listener) }) }
 }))
 vi.doMock('expo-constants', () => ({ default: { expoConfig: { extra: { bubblesNotificationsExpo: { defaultChannelId: 'default', defaultChannelName: 'Default', androidChannelImportance: 'default' } } } } }))
 vi.doMock('@react-native-firebase/messaging', () => ({
@@ -56,8 +58,8 @@ vi.doMock('expo-notifications', () => ({
   requestPermissionsAsync: async () => ({ granted: true, status: 'granted' }),
   setNotificationChannelAsync: async () => null,
   scheduleNotificationAsync: native.schedule,
-  getLastNotificationResponse: () => null,
-  clearLastNotificationResponse: () => undefined,
+  getLastNotificationResponse: () => native.lastResponse,
+  clearLastNotificationResponse: () => { native.lastResponse = null },
   addNotificationResponseReceivedListener: (listener: Listener) => ({ remove: subscribe(native.responses, listener) })
 }))
 vi.doMock('../../src/storage/installation-id', () => ({ getOrCreateInstallationId: async () => 'installation' }))
@@ -173,6 +175,8 @@ beforeEach(async () => {
   await import('@react-native-firebase/messaging')
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   native.stored = { deviceId: null, apiBaseUrl: null, appKey: null }
+  native.lastResponse = null
+  native.currentState = 'active'
   native.sync.mockReset().mockImplementation(async () => ({ action: 'created', deviceId: CURRENT_DEVICE_ID }))
   native.flush.mockReset().mockResolvedValue(undefined)
   native.token.mockClear()
@@ -1289,4 +1293,320 @@ test('successful replacement enrollment supersedes a logout-only stale canonical
   assert.deepEqual(native.stored.pendingLogouts, {})
   assert.equal(required(contexts.get('replacement')).notificationsEnabled, false)
   assertListeners(1)
+})
+
+test('Suspense hide and reveal restores notification and AppState observers across repeated cycles', async () => {
+  const callback = vi.fn()
+  const presentation = { shouldPlaySound: true }
+  const enrollments: Promise<void>[] = []
+  let pending: Promise<void> | null = null
+  let resolvePending: (() => void) | undefined
+
+  function PassiveEnrollment () {
+    const context = required(useContext(BubblesNotificationsContext))
+    const initialRegister = useRef(context.registerDevice)
+
+    useEffect(() => {
+      const operation = initialRegister.current({ userId: 'suspense-user' })
+
+      void operation.catch(() => undefined)
+      enrollments.push(operation)
+    }, [])
+
+    return null
+  }
+  function ControlledSuspender () {
+    if (pending) throw pending
+
+    return 'visible'
+  }
+  function view () {
+    return <Suspense fallback='loading'>
+      <BubblesNotificationsProvider
+        {...config}
+        foregroundPresentation={presentation}
+        onNotificationResponse={callback}
+      >
+        <Consumer name='current' />
+
+        <PassiveEnrollment />
+
+        <ControlledSuspender />
+      </BubblesNotificationsProvider>
+    </Suspense>
+  }
+  let root!: ReactTestRenderer
+
+  await act(async () => { root = create(view()) })
+  roots.push(root)
+  await act(async () => { await Promise.all(enrollments) })
+  await settle()
+  assert.equal(enrollments.length, 1)
+  assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+  assert.equal(root.toJSON(), 'visible')
+  assertListeners(1)
+  for (let cycle = 0; cycle < 2; cycle++) {
+    pending = new Promise<void>((resolve) => { resolvePending = resolve })
+    await act(async () => { root.update(view()) })
+    await settle()
+    assert.equal(root.toJSON(), 'loading', 'the boundary outside the provider must hide its committed content')
+    assertListeners(0)
+    // The OS changes state while the hidden runtime has no AppState observer.
+    native.currentState = 'background'
+    pending = null
+    await act(async () => { required(resolvePending)() })
+    await settle()
+    assert.equal(root.toJSON(), 'visible')
+    assertListeners(1)
+    const tokenReadsBeforeMissedResume = native.token.mock.calls.length
+
+    native.currentState = 'active'
+    emit(native.appStates, 'active')
+    await settle()
+    assert.ok(native.token.mock.calls.length > tokenReadsBeforeMissedResume, 'reveal must resample AppState after missing the background transition')
+    assert.equal((await required(native.handler).handleNotification()).shouldPlaySound, true)
+    emit(native.messages, { notification: { title: `Revealed notification ${cycle}`, body: 'Body' }, data: {} })
+    const response = open()
+
+    emit(native.responses, response)
+    emit(native.responses, response)
+    await settle()
+    assert.equal(native.schedule.mock.calls.length, cycle + 1)
+    assert.equal(callback.mock.calls.length, cycle + 1)
+    assert.equal(enrollments.length, 1, 'revealing must preserve a session enrolled by a passive effect that does not replay')
+    assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+    const tokenReadsBeforeRefresh = native.token.mock.calls.length
+
+    emit(native.tokens, 'revealed-refresh-token')
+    await settle()
+    assert.ok(native.token.mock.calls.length > tokenReadsBeforeRefresh)
+    const tokenReadsBeforeForeground = native.token.mock.calls.length
+
+    emit(native.appStates, 'background')
+    emit(native.appStates, 'active')
+    await settle()
+    assert.ok(native.token.mock.calls.length > tokenReadsBeforeForeground)
+    assert.equal(native.sync.mock.calls.length, 1, 'a same-owner reveal must maintain the existing enrollment without duplicate backend enrollment')
+    assertListeners(1)
+  }
+  await unmount(root)
+  assertListeners(0)
+  await mount('after-suspense')
+  assertListeners(1)
+})
+
+test('startup notification response is delivered after descendant passive initialization', async () => {
+  const phases: string[] = []
+
+  function PassiveInitialization () {
+    useEffect(() => { phases.push('child passive initialization') }, [])
+
+    return null
+  }
+  native.lastResponse = open()
+  let root!: ReactTestRenderer
+
+  await act(async () => {
+    root = create(<BubblesNotificationsProvider
+      {...config}
+      onNotificationResponse={() => { phases.push('notification response') }}
+    >
+      <PassiveInitialization />
+    </BubblesNotificationsProvider>)
+  })
+  roots.push(root)
+  await settle()
+  assert.deepEqual(phases, ['child passive initialization', 'notification response'])
+  assert.equal(native.lastResponse, null)
+  assertListeners(1)
+})
+
+test('same-owner Suspense reveal retries pending passive enrollment after its stale request drains', async () => {
+  const enrollmentOptions = { userId: 'pending-suspense-user', appVersion: 'pending-version', aliasing: ['pending-alias'] }
+  const enrollments: Promise<void>[] = []
+  let suspended: Promise<void> | null = null
+  let reveal!: () => void
+  let releaseRegistration!: (value: { action: string; deviceId: string }) => void
+  const response = new Promise<{ action: string; deviceId: string }>((resolve) => { releaseRegistration = resolve })
+
+  native.sync.mockImplementationOnce(() => response)
+  function PassivePendingEnrollment () {
+    const context = required(useContext(BubblesNotificationsContext))
+    const initialRegister = useRef(context.registerDevice)
+
+    useEffect(() => {
+      const operation = initialRegister.current(enrollmentOptions)
+
+      void operation.catch(() => undefined)
+      enrollments.push(operation)
+    }, [])
+
+    return null
+  }
+  function ControlledSuspender () {
+    if (suspended) throw suspended
+
+    return 'visible pending enrollment'
+  }
+  function view () {
+    return <Suspense fallback='loading pending enrollment'>
+      <BubblesNotificationsProvider {...config}>
+        <PassivePendingEnrollment />
+
+        <Consumer name='current' />
+
+        <ControlledSuspender />
+      </BubblesNotificationsProvider>
+    </Suspense>
+  }
+  let root!: ReactTestRenderer
+
+  await act(async () => { root = create(view()) })
+  roots.push(root)
+  try {
+    await settle()
+    assert.equal(native.sync.mock.calls.length, 1)
+    suspended = new Promise<void>((resolve) => { reveal = resolve })
+    await act(async () => { root.update(view()) })
+    await settle()
+    assert.equal(root.toJSON(), 'loading pending enrollment')
+    assertListeners(0)
+    suspended = null
+    await act(async () => { reveal() })
+    await settle()
+    assert.equal(root.toJSON(), 'visible pending enrollment')
+  } finally {
+    await act(async () => {
+      releaseRegistration({ action: 'created', deviceId: 'stale-suspense-device' })
+      await Promise.allSettled(enrollments)
+    })
+    await settle()
+  }
+  assert.equal(enrollments.length, 1, 'the passive consumer must not replay enrollment')
+  assert.deepEqual(native.sync.mock.calls.map(([options]) => ({ userId: options.userId, appVersion: options.appVersion, aliasing: options.aliasing })), [
+    enrollmentOptions,
+    enrollmentOptions
+  ])
+  assert.equal(native.stored.deviceId, CURRENT_DEVICE_ID)
+  assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+  assertListeners(1)
+})
+
+test('revealing an older hidden provider cannot take ownership back from a newer compatible root', async () => {
+  const oldCallback = vi.fn()
+  const currentCallback = vi.fn()
+  let suspended: Promise<void> | null = null
+  let reveal!: () => void
+
+  function ControlledSuspender () {
+    if (suspended) throw suspended
+
+    return 'old visible provider'
+  }
+  function oldView () {
+    return <Suspense fallback='old hidden provider'>
+      <BubblesNotificationsProvider
+        {...config}
+        onNotificationResponse={oldCallback}
+      >
+        <ControlledSuspender />
+      </BubblesNotificationsProvider>
+    </Suspense>
+  }
+  let oldRoot!: ReactTestRenderer
+
+  await act(async () => { oldRoot = create(oldView()) })
+  roots.push(oldRoot)
+  await settle()
+  suspended = new Promise<void>((resolve) => { reveal = resolve })
+  await act(async () => { oldRoot.update(oldView()) })
+  await settle()
+  assert.equal(oldRoot.toJSON(), 'old hidden provider')
+  assertListeners(0)
+  await mount('current', { onNotificationResponse: currentCallback, foregroundPresentation: { shouldPlaySound: true } })
+  suspended = null
+  await act(async () => { reveal() })
+  await settle()
+  assert.equal(oldRoot.toJSON(), 'old visible provider')
+  assertListeners(1)
+  const response = open()
+
+  emit(native.responses, response)
+  emit(native.responses, response)
+  assert.equal(oldCallback.mock.calls.length, 0)
+  assert.equal(currentCallback.mock.calls.length, 1)
+  assert.equal((await required(native.handler).handleNotification()).shouldPlaySound, true)
+  await unmount(oldRoot)
+  assertListeners(1)
+  emit(native.responses, open())
+  assert.equal(currentCallback.mock.calls.length, 2)
+})
+
+test('revealing a provider updated while hidden reconnects the latest configuration and callbacks', async () => {
+  const oldCallback = vi.fn()
+  const currentCallback = vi.fn()
+  const oldPresentation = { shouldPlaySound: false }
+  const currentPresentation = { shouldPlaySound: true }
+  const updatedAppKey = 'hidden-update-app-key'
+  let pending: Promise<void> | null = null
+  let reveal!: () => void
+
+  function ControlledSuspender () {
+    if (pending) throw pending
+
+    return 'updated provider visible'
+  }
+  function view (updated: boolean) {
+    return <Suspense fallback='updated provider hidden'>
+      <BubblesNotificationsProvider
+        {...config}
+        appKey={updated ? updatedAppKey : config.appKey}
+        foregroundPresentation={updated ? currentPresentation : oldPresentation}
+        onNotificationResponse={updated ? currentCallback : oldCallback}
+      >
+        <Consumer name='current' />
+
+        <ControlledSuspender />
+      </BubblesNotificationsProvider>
+    </Suspense>
+  }
+  let root!: ReactTestRenderer
+
+  await act(async () => { root = create(view(false)) })
+  roots.push(root)
+  await settle()
+  assertListeners(1)
+  const staleResponseListener = [...native.responses][0]
+
+  pending = new Promise<void>((resolve) => { reveal = resolve })
+  await act(async () => { root.update(view(false)) })
+  await settle()
+  assert.equal(root.toJSON(), 'updated provider hidden')
+  assertListeners(0)
+  await act(async () => { root.update(view(true)) })
+  await settle()
+  assert.equal(root.toJSON(), 'updated provider hidden')
+  assertListeners(0)
+  pending = null
+  await act(async () => { reveal() })
+  await settle()
+  assert.equal(root.toJSON(), 'updated provider visible')
+  assertListeners(1)
+  assert.equal((await required(native.handler).handleNotification()).shouldPlaySound, true)
+  const response = open()
+
+  staleResponseListener(response as never)
+  emit(native.responses, response)
+  emit(native.responses, response)
+  emit(native.messages, { notification: { title: 'Updated hidden provider notification', body: 'Body' }, data: {} })
+  await settle()
+  assert.equal(oldCallback.mock.calls.length, 0)
+  assert.equal(currentCallback.mock.calls.length, 1)
+  assert.equal(native.schedule.mock.calls.length, 1)
+  await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'hidden-update-user' }) })
+  assert.equal(native.sync.mock.calls.length, 1)
+  assert.equal(native.sync.mock.calls[0][0].appKey, updatedAppKey)
+  assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+  await unmount(root)
+  assertListeners(0)
 })

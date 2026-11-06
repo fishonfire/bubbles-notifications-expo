@@ -130,6 +130,8 @@ export function BubblesNotificationsProvider (
     : undefined, [migrationPolicy, migrationBridge, migrationAppId, migrationTimeout])
   const normalizedUserId = normalizeUserId(userId ?? null)
   const [state, setState] = useState(getInitialRuntimeState)
+  const [ownershipEpoch, setOwnershipEpoch] = useState(0)
+  const hasAcquiredOwnershipRef = useRef(false)
   const {
     isMountedRef,
     invalidateRegistrations,
@@ -197,6 +199,8 @@ export function BubblesNotificationsProvider (
   }, [appId, appKey, apiBaseUrl, stableMigration])
 
   const maintainEnrolledSession = useCallback(async () => {
+    const lifecycleVersion = lifecycleVersionRef.current
+    const isCurrent = () => isMountedRef.current && lifecycleVersionRef.current === lifecycleVersion
     let runtimeStateUpdate
 
     do {
@@ -209,7 +213,7 @@ export function BubblesNotificationsProvider (
 
       const maintenanceResult = await maintainBubblesDevice({
         oneSignalMigration: providerConfigurationRef.current.oneSignalMigration,
-        isCurrent: () => isMountedRef.current && enrolledSessionRef.current === enrolledSession,
+        isCurrent: () => isCurrent() && enrolledSessionRef.current === enrolledSession,
         appId: enrolledSession.appId,
         appKey: enrolledSession.appKey,
         apiBaseUrl: enrolledSession.apiBaseUrl,
@@ -221,7 +225,7 @@ export function BubblesNotificationsProvider (
           enrolledSession.registrationState
       })
 
-      if (!isMountedRef.current || enrolledSessionRef.current !== enrolledSession) {
+      if (!isCurrent() || enrolledSessionRef.current !== enrolledSession) {
         break
       }
 
@@ -325,6 +329,7 @@ export function BubblesNotificationsProvider (
 
   useLayoutEffect(() => {
     const owner = providerOwnerRef.current
+    const configuration = { appId, appKey, apiBaseUrl, oneSignalMigration: stableMigration }
 
     if (isRetiredBubblesProvider(owner)) return
     const revoke = () => {
@@ -335,9 +340,13 @@ export function BubblesNotificationsProvider (
       invalidateRegistrations()
       enrollmentRequestVersionRef.current += 1
       desiredOperationRef.current += 1
-      enrolledSessionRef.current = null
-      sessionSuspendedRef.current = true
-      pendingEnrollmentRef.current = null
+      // Suspense disconnects layout effects without unmounting passive consumers.
+      // Keep their session/intent for the same owner, but never for a successor.
+      if (isRetiredBubblesProvider(owner)) {
+        enrolledSessionRef.current = null
+        sessionSuspendedRef.current = true
+        pendingEnrollmentRef.current = null
+      }
       maintenanceRequestedRef.current = false
       clearLogoutRetry()
       for (const cleanup of [...listenerCleanupsRef.current]) cleanup()
@@ -345,8 +354,7 @@ export function BubblesNotificationsProvider (
     let release: () => void
 
     try {
-      release = acquireBubblesProviderOwnership(owner,
-        { appId, appKey, apiBaseUrl, oneSignalMigration: stableMigration }, revoke)
+      release = acquireBubblesProviderOwnership(owner, configuration, revoke)
     } catch (error) {
       // Child layout effects run first and may already have queued enrollment.
       // A failed acquisition has no React cleanup, so retire that work now.
@@ -357,16 +365,20 @@ export function BubblesNotificationsProvider (
 
     isMountedRef.current = true
     logoutOwnershipRef.current.acceptOwnership()
-    setState((current) => current.notificationsEnabled
+    setState((current) => current.notificationsEnabled && sessionSuspendedRef.current
       ? { ...current, notificationsEnabled: false }
       : current)
+    // Reveal reconnects layout effects, but may leave passive effects mounted.
+    // Re-run owned resources in their original passive phase after reacquisition.
+    if (hasAcquiredOwnershipRef.current) setOwnershipEpoch((current) => current + 1)
+    hasAcquiredOwnershipRef.current = true
 
     return release
   }, [appId, appKey, apiBaseUrl, stableMigration, isMountedRef, invalidateRegistrations, clearLogoutRetry])
 
   useEffect(() => observeCurrentProvider(() => acquireBubblesForegroundPresentation(
     providerOwnerRef.current
-  )), [observeCurrentProvider, appId, appKey, apiBaseUrl, stableMigration])
+  )), [observeCurrentProvider, appId, appKey, apiBaseUrl, stableMigration, ownershipEpoch])
 
   useEffect(() => {
     currentDeviceIdRef.current = state.deviceId
@@ -374,22 +386,24 @@ export function BubblesNotificationsProvider (
 
   useEffect(() => {
     let isCancelled = false
+    const lifecycleVersion = lifecycleVersionRef.current
+    const isCurrent = () => !isCancelled && isMountedRef.current && lifecycleVersionRef.current === lifecycleVersion
 
     void enqueueBubblesRegistration(async () => {
-      if (isCancelled || !isMountedRef.current) return
+      if (!isCurrent()) return
       try {
         const [storedDeviceState, permissions] = await Promise.all([
           (async () => {
             const installationId = await getOrCreateInstallationId()
             const scopedState = await prepareRegistrationScope(getRequiredNonEmptyString(apiBaseUrl, 'apiBaseUrl'), appId,
-              getRequiredNonEmptyString(appKey, 'appKey'), () => !isCancelled && isMountedRef.current)
+              getRequiredNonEmptyString(appKey, 'appKey'), isCurrent)
 
             return { ...scopedState, identityAcknowledged: scopedState.identityAcknowledged && scopedState.acknowledgedInstallationId === installationId }
           })(),
           getNotificationPermissions({ requestPermissions: false })
         ])
 
-        if (isCancelled || !isMountedRef.current) {
+        if (!isCurrent()) {
           return
         }
 
@@ -418,7 +432,7 @@ export function BubblesNotificationsProvider (
         }
         requestMaintenanceRef.current()
       } catch (error) {
-        if (!isCancelled && isMountedRef.current) {
+        if (isCurrent()) {
           setState((currentState) => ({
             ...currentState,
             error: normalizeProviderError(error)
@@ -430,20 +444,20 @@ export function BubblesNotificationsProvider (
     return () => {
       isCancelled = true
     }
-  }, [appId, apiBaseUrl, appKey, migrationPolicy, stableMigration, isMountedRef])
+  }, [appId, apiBaseUrl, appKey, migrationPolicy, stableMigration, isMountedRef, ownershipEpoch])
 
   useEffect(() => {
     updateBubblesForegroundPresentation(
       providerOwnerRef.current,
       foregroundPresentation
     )
-  }, [foregroundPresentation, appId, appKey, apiBaseUrl, stableMigration])
+  }, [foregroundPresentation, appId, appKey, apiBaseUrl, stableMigration, ownershipEpoch])
 
-  useEffect(() => observeCurrentProvider(observeBubblesForegroundRemoteMessages), [observeCurrentProvider, appId, appKey, apiBaseUrl, stableMigration])
+  useEffect(() => observeCurrentProvider(observeBubblesForegroundRemoteMessages), [observeCurrentProvider, appId, appKey, apiBaseUrl, stableMigration, ownershipEpoch])
 
   useEffect(() => observeCurrentProvider(() => observeBubblesDeviceTokenRefresh(() => {
     requestMaintenance()
-  })), [requestMaintenance, observeCurrentProvider, appId, appKey, apiBaseUrl, stableMigration])
+  })), [requestMaintenance, observeCurrentProvider, appId, appKey, apiBaseUrl, stableMigration, ownershipEpoch])
 
   useEffect(() => observeCurrentProvider(() => {
     if (!migrationBridge) return
@@ -462,8 +476,9 @@ export function BubblesNotificationsProvider (
     })
 
     return () => { active = false; unsubscribe() }
-  }), [migrationBridge, requestMaintenance, observeCurrentProvider, appId, appKey, apiBaseUrl, stableMigration])
+  }), [migrationBridge, requestMaintenance, observeCurrentProvider, appId, appKey, apiBaseUrl, stableMigration, ownershipEpoch])
   useEffect(() => observeCurrentProvider(() => {
+    appStateRef.current = AppState.currentState
     const subscription = AppState.addEventListener(
       'change',
       (nextAppState) => {
@@ -485,11 +500,11 @@ export function BubblesNotificationsProvider (
     return () => {
       subscription.remove()
     }
-  }), [requestMaintenance, clearLogoutRetry, observeCurrentProvider, isMountedRef, appId, appKey, apiBaseUrl, stableMigration])
+  }), [requestMaintenance, clearLogoutRetry, observeCurrentProvider, isMountedRef, appId, appKey, apiBaseUrl, stableMigration, ownershipEpoch])
 
   useEffect(() => observeCurrentProvider(() => observeBubblesNotificationOpenEvents({
     onNotificationResponse
-  })), [onNotificationResponse, observeCurrentProvider, appId, appKey, apiBaseUrl, stableMigration])
+  })), [onNotificationResponse, observeCurrentProvider, appId, appKey, apiBaseUrl, stableMigration, ownershipEpoch])
 
   useEffect(() => {
     if (!isMountedRef.current) return

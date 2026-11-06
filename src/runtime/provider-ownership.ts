@@ -14,6 +14,7 @@ interface ProviderLease {
 }
 
 let currentLease: ProviderLease | null = null
+let mostRecentOwner: object | null = null
 const retiredOwners = new WeakSet<object>()
 
 function areMigrationsCompatible (left?: OneSignalMigration, right?: OneSignalMigration): boolean {
@@ -66,7 +67,10 @@ export function acquireBubblesProviderOwnership (
   // Invalidate old work before disposing its listeners. Its eventual cleanup
   // must never clear the replacement lease or restore an older provider.
   currentLease = lease
-  if (previousLease && previousLease.owner !== owner) retiredOwners.add(previousLease.owner)
+  // A hidden provider may have released its lease while keeping React state.
+  // A newer owner supersedes it just as permanently as an active predecessor.
+  if (mostRecentOwner && mostRecentOwner !== owner) retiredOwners.add(mostRecentOwner)
+  mostRecentOwner = owner
   previousLease?.revoke()
 
   return () => {
