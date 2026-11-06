@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { StrictMode, useContext, useLayoutEffect } from 'react'
+import { StrictMode, useContext, useLayoutEffect, useRef } from 'react'
 import { afterEach, beforeEach, test, vi } from 'vitest'
 import type { BubblesNotificationsContextValue, BubblesNotificationsProviderProps } from '../../src/runtime/context'
 import type { StoredDeviceState } from '../../src/storage/device-state'
@@ -15,6 +15,7 @@ const native = vi.hoisted(() => ({
   token: vi.fn(async () => 'token-current'),
   prepare: vi.fn(),
   client: vi.fn(),
+  mark: vi.fn(),
   schedule: vi.fn(async () => 'local-id'),
   handler: null as null | { handleNotification: () => Promise<Record<string, boolean>> },
   sync: vi.fn(async (_options: Record<string, unknown>) => ({ action: 'created', deviceId: 'initial-device' })),
@@ -77,7 +78,10 @@ vi.doMock('../../src/storage/device-state', () => ({
 
     return { ...native.stored }
   },
-  markPendingLogout: async (scope: string, deviceId: string | null) => { native.stored.pendingLogouts = { ...native.stored.pendingLogouts, [scope]: deviceId } },
+  markPendingLogout: async (scope: string, deviceId: string | null) => {
+    native.mark(scope, deviceId)
+    native.stored.pendingLogouts = { ...native.stored.pendingLogouts, [scope]: deviceId }
+  },
   clearPendingLogout: async (scope: string) => { delete native.stored.pendingLogouts?.[scope] },
   bindPendingLogoutTarget: async (scope: string, deviceId: string, previousDeviceId?: string | null) => {
     if (!native.stored.pendingLogouts || !Object.prototype.hasOwnProperty.call(native.stored.pendingLogouts, scope)) return false
@@ -165,6 +169,7 @@ beforeEach(async () => {
   native.token.mockClear()
   native.prepare.mockClear()
   native.client.mockClear()
+  native.mark.mockClear()
   native.schedule.mockClear()
   native.update.mockClear()
   contexts.clear()
@@ -642,3 +647,91 @@ test('logout retargets an acknowledged identity to its recovered canonical resul
   assert.deepEqual(native.stored.pendingLogouts, {})
   assert.equal(required(contexts.get('replacement')).notificationsEnabled, false)
 })
+
+function LogoutOnCommit ({ onLogout }: { onLogout: (operation: Promise<void>) => void }) {
+  const context = required(useContext(BubblesNotificationsContext))
+  const started = useRef(false)
+
+  useLayoutEffect(() => {
+    if (started.current) return
+    started.current = true
+    const operation = context.logout()
+
+    void operation.catch(() => undefined)
+    onLogout(operation)
+  }, [context, onLogout])
+
+  return null
+}
+
+test('a migration-incompatible provider cannot persist or disable logout from a descendant layout effect', async () => {
+  acknowledgeStoredDevice()
+  const callback = vi.fn()
+  const migration = migrationConfiguration()
+
+  await mount('current', { oneSignalMigration: migration, onNotificationResponse: callback })
+  await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'current-owner-user' }) })
+  const storedBeforeRejectedCommit = structuredClone(native.stored)
+  const preparesBeforeRejectedCommit = native.prepare.mock.calls.length
+  let rejectedLogout: Promise<void> | undefined
+
+  await assert.rejects(async () => {
+    await act(async () => {
+      create(<BubblesNotificationsProvider
+        {...config}
+        oneSignalMigration={{ ...migration, readinessTimeoutMs: 1000 }}
+      >
+        <LogoutOnCommit onLogout={(operation) => { rejectedLogout = operation }} />
+      </BubblesNotificationsProvider>)
+    })
+  }, /configur|conflict|credential/i)
+  assert.ok(rejectedLogout, 'the descendant layout effect must call logout before rejected ownership acquisition')
+  await assert.rejects(required(rejectedLogout), /replac|unmount|owner|accept|acquir/i)
+  await settle()
+  assert.equal(native.mark.mock.calls.length, 0)
+  assert.equal(native.update.mock.calls.length, 0)
+  assert.equal(native.prepare.mock.calls.length, preparesBeforeRejectedCommit)
+  assert.deepEqual(native.stored, storedBeforeRejectedCommit)
+  assertListeners(1)
+  assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+  emit(native.responses, open())
+  assert.equal(callback.mock.calls.length, 1)
+  const tokenReads = native.token.mock.calls.length
+
+  emit(native.tokens, 'still-current-token')
+  await settle()
+  assert.ok(native.token.mock.calls.length > tokenReads)
+})
+
+for (const replacement of [false, true]) {
+  for (const immediatelyUnmounted of [false, true]) {
+    test(`accepted descendant layout logout persists and disables, replacement=${replacement}, immediate unmount=${immediatelyUnmounted}`, async () => {
+      acknowledgeStoredDevice()
+      if (replacement) {
+        await mount('old')
+        await act(async () => { await required(contexts.get('old')).registerDevice({ userId: 'old-owner-user' }) })
+      }
+      const expectedDeviceId = replacement ? CURRENT_DEVICE_ID : ACKNOWLEDGED_DEVICE_ID
+      let logout: Promise<void> | undefined
+      let root!: ReactTestRenderer
+
+      act(() => {
+        root = create(<BubblesNotificationsProvider {...config}>
+          <LogoutOnCommit onLogout={(operation) => { logout = operation }} />
+        </BubblesNotificationsProvider>)
+      })
+      if (immediatelyUnmounted) {
+        act(() => { root.unmount() })
+      } else {
+        roots.push(root)
+      }
+      assert.ok(logout)
+      await act(async () => { await logout })
+      await settle()
+      assert.ok(native.mark.mock.calls.length > 0)
+      assert.deepEqual(native.update.mock.calls.map(([deviceId, attributes]) => ({ deviceId, attributes })), [{ deviceId: expectedDeviceId, attributes: { notifications_enabled: false } }])
+      assert.deepEqual(native.stored.pendingLogouts, {})
+      assertListeners(immediatelyUnmounted ? 0 : 1)
+    })
+  }
+}

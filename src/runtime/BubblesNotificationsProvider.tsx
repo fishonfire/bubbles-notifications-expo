@@ -166,6 +166,7 @@ export function BubblesNotificationsProvider (
   } = useBubblesRegistrationCoordinator(setState)
   const currentDeviceIdRef = useRef<string | null>(state.deviceId)
   const foregroundPresentationOwnerRef = useRef({})
+  const ownershipAcceptedRef = useRef(false)
   const lifecycleVersionRef = useRef(0)
   const listenerCleanupsRef = useRef(new Set<() => void>())
   const observeCurrentProvider = useCallback((observe: () => (() => void) | undefined) => {
@@ -382,6 +383,7 @@ export function BubblesNotificationsProvider (
       throw error
     }
 
+    ownershipAcceptedRef.current = true
     isMountedRef.current = true
     setState((current) => current.notificationsEnabled
       ? { ...current, notificationsEnabled: false }
@@ -600,9 +602,20 @@ export function BubblesNotificationsProvider (
     maintenanceRequestedRef.current = false
     clearLogoutRetry()
     setState((current) => ({ ...current, notificationsEnabled: false }))
-    // Persist intent now; let an in-flight first registration acknowledge its
-    // canonical identity before disabling that identity in the queued operation.
-    const marked = markBubblesLogout(configuration, currentDeviceIdRef.current)
+    const deviceId = currentDeviceIdRef.current
+    const markAcceptedLogout = () => {
+      if (!ownershipAcceptedRef.current) {
+        failWithBubblesError('Logout requires successful BubblesNotificationsProvider ownership acquisition.')
+      }
+
+      return markBubblesLogout(configuration, deviceId)
+    }
+    // Descendant layout effects run before ownership acquisition. Defer their
+    // persistence until acquisition succeeds; accepted owners keep immediate
+    // marking and durable logout even if they subsequently retire.
+    const marked = ownershipAcceptedRef.current
+      ? markAcceptedLogout()
+      : Promise.resolve().then(markAcceptedLogout)
     // Observe rejection immediately while the registration queue is draining.
     const markResult = marked.then(() => ({ error: null }), (error: unknown) => ({ error }))
 
