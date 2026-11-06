@@ -431,7 +431,7 @@ export function BubblesNotificationsProvider (
     return () => {
       isCancelled = true
     }
-  }, [appId, apiBaseUrl, appKey, migrationPolicy, isMountedRef])
+  }, [appId, apiBaseUrl, appKey, migrationPolicy, stableMigration, isMountedRef])
 
   useEffect(() => {
     updateBubblesForegroundPresentation(
@@ -524,9 +524,17 @@ export function BubblesNotificationsProvider (
   }
 
   const registerDevice: RegisterDevice = async (options?: RegisterDeviceOptions) => {
-    assertCurrentProvider()
-    const providerConfiguration = providerConfigurationRef.current
+    // Reserve call order before waiting, so a later logout still supersedes
+    // enrollment requested by a descendant before ownership acquisition.
     const operationId = ++desiredOperationRef.current
+
+    if (!isCurrentBubblesProvider(providerOwnerRef.current)) await Promise.resolve()
+    assertCurrentProvider()
+    if (!isCurrentBubblesProvider(providerOwnerRef.current)) {
+      failWithBubblesError('Registration requires successful BubblesNotificationsProvider ownership acquisition.')
+    }
+    if (operationId !== desiredOperationRef.current) return
+    const providerConfiguration = providerConfigurationRef.current
     const providerConfigurationVersion = providerConfigurationVersionRef.current
     const isCurrentOperation = () => operationId === desiredOperationRef.current &&
       providerConfigurationVersion === providerConfigurationVersionRef.current

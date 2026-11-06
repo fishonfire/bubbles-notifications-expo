@@ -788,3 +788,166 @@ for (const existingIdentity of [false, true]) {
     assertListeners(1)
   })
 }
+
+function EnrollFromLayout ({ userId, onOperation }: { userId: string; onOperation: (operation: Promise<void>) => void }) {
+  const context = required(useContext(BubblesNotificationsContext))
+  const currentContext = useRef(context)
+
+  useLayoutEffect(() => { currentContext.current = context }, [context])
+  useLayoutEffect(() => {
+    const operation = currentContext.current.registerDevice({ userId })
+
+    void operation.catch(() => undefined)
+    onOperation(operation)
+  }, [userId, onOperation])
+
+  return null
+}
+
+test('Strict Mode replay enrolls the latest descendant layout request exactly once', async () => {
+  const operations: Promise<void>[] = []
+  const onOperation = (operation: Promise<void>) => { operations.push(operation) }
+  let root!: ReactTestRenderer
+
+  await act(async () => {
+    root = create(<StrictMode><BubblesNotificationsProvider {...config}>
+      <EnrollFromLayout
+        userId='strict-layout-user'
+        onOperation={onOperation}
+      />
+
+      <Consumer name='current' />
+    </BubblesNotificationsProvider></StrictMode>)
+  })
+  roots.push(root)
+  await act(async () => { await Promise.allSettled(operations) })
+  await settle()
+  assert.equal(operations.length, 2, 'React must replay the descendant layout enrollment')
+  assert.deepEqual(native.sync.mock.calls.map(([options]) => ({ userId: options.userId, apiBaseUrl: options.apiBaseUrl, appKey: options.appKey })), [{ userId: 'strict-layout-user', apiBaseUrl: config.apiBaseUrl, appKey: config.appKey }])
+  assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+  assertListeners(1)
+})
+
+test('descendant layout enrollment after a configuration change uses the current user and credentials', async () => {
+  const operations: Promise<void>[] = []
+  const onOperation = (operation: Promise<void>) => { operations.push(operation) }
+  let root!: ReactTestRenderer
+
+  await act(async () => {
+    root = create(<BubblesNotificationsProvider {...config}>
+      <EnrollFromLayout
+        userId='before-layout-change'
+        onOperation={onOperation}
+      />
+
+      <Consumer name='current' />
+    </BubblesNotificationsProvider>)
+  })
+  roots.push(root)
+  await act(async () => { await Promise.allSettled(operations) })
+  await settle()
+  assert.equal(native.sync.mock.calls.length, 1)
+  await act(async () => {
+    root.update(<BubblesNotificationsProvider
+      {...config}
+      apiBaseUrl='https://layout-change.example'
+      appKey='layout-change-key'
+    >
+      <EnrollFromLayout
+        userId='after-layout-change'
+        onOperation={onOperation}
+      />
+
+      <Consumer name='current' />
+    </BubblesNotificationsProvider>)
+  })
+  await act(async () => { await Promise.allSettled(operations) })
+  await settle()
+  assert.deepEqual(native.sync.mock.calls.map(([options]) => ({ userId: options.userId, apiBaseUrl: options.apiBaseUrl, appKey: options.appKey })), [
+    { userId: 'before-layout-change', apiBaseUrl: config.apiBaseUrl, appKey: config.appKey },
+    { userId: 'after-layout-change', apiBaseUrl: 'https://layout-change.example', appKey: 'layout-change-key' }
+  ])
+  assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+  assertListeners(1)
+})
+
+for (const migrationChange of ['bridge', 'timeout'] as const) {
+  test(`pending logout retries after migration ${migrationChange} changes without external events`, async () => {
+    acknowledgeStoredDevice()
+    const migration = migrationConfiguration(1000)
+    const root = await mount('current', { oneSignalMigration: migration })
+
+    await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'retry-migration-user' }) })
+    vi.useFakeTimers()
+    try {
+      native.update.mockRejectedValueOnce(new Error('Temporary disable failure'))
+      await act(async () => {
+        await assert.rejects(required(contexts.get('current')).logout(), /Temporary disable failure/)
+      })
+      assert.equal(native.update.mock.calls.length, 1)
+      assert.equal(native.stored.pendingLogouts?.[`${config.apiBaseUrl}/${config.appId}`], CURRENT_DEVICE_ID)
+      const nextMigration = {
+        ...migration,
+        ...(migrationChange === 'bridge' ? { bridge: migrationConfiguration().bridge } : { readinessTimeoutMs: 2000 })
+      }
+
+      await act(async () => { root.update(tree('current', { oneSignalMigration: nextMigration })) })
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15000)
+        for (let index = 0; index < 35; index++) await Promise.resolve()
+      })
+      assert.deepEqual(native.update.mock.calls.map(([deviceId]) => deviceId), [CURRENT_DEVICE_ID, CURRENT_DEVICE_ID])
+      assert.deepEqual(native.stored.pendingLogouts, {})
+      assert.equal(required(contexts.get('current')).notificationsEnabled, false)
+      assert.equal(native.sync.mock.calls.length, 1, 'logout retry must not enroll a new session')
+    } finally {
+      vi.useRealTimers()
+    }
+    await settle()
+    assertListeners(1)
+  })
+}
+
+test('a later child layout logout wins over initial enrollment waiting for ownership', async () => {
+  acknowledgeStoredDevice()
+  const operations: Promise<void>[] = []
+
+  function EnrollThenLogout () {
+    const context = required(useContext(BubblesNotificationsContext))
+    const started = useRef(false)
+
+    useLayoutEffect(() => {
+      if (started.current) return
+      started.current = true
+      const registration = context.registerDevice({ userId: 'signed-out-before-acquisition' })
+      const logout = context.logout()
+
+      void registration.catch(() => undefined)
+      void logout.catch(() => undefined)
+      operations.push(registration, logout)
+    }, [context])
+
+    return null
+  }
+
+  let root!: ReactTestRenderer
+
+  await act(async () => {
+    root = create(<BubblesNotificationsProvider {...config}>
+      <EnrollThenLogout />
+
+      <Consumer name='current' />
+    </BubblesNotificationsProvider>)
+  })
+  roots.push(root)
+  let results: PromiseSettledResult<void>[] = []
+
+  await act(async () => { results = await Promise.allSettled(operations) })
+  await settle()
+  assert.deepEqual(results.map((result) => result.status), ['fulfilled', 'fulfilled'])
+  assert.equal(native.sync.mock.calls.length, 0, 'the initial enrollment must not start after the later logout')
+  assert.deepEqual(native.update.mock.calls.map(([deviceId]) => deviceId), [ACKNOWLEDGED_DEVICE_ID])
+  assert.deepEqual(native.stored.pendingLogouts, {})
+  assert.equal(required(contexts.get('current')).notificationsEnabled, false)
+  assertListeners(1)
+})
