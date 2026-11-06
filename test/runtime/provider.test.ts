@@ -933,24 +933,29 @@ test('BubblesNotificationsProvider survives Strict Mode effect replay', async ()
   renderer.unmount()
 })
 
-test('BubblesNotificationsProvider rejects a duplicate mounted provider', async () => {
+test('BubblesNotificationsProvider hands over compatible mounted providers and ignores old cleanup', async () => {
   const firstRenderer = await renderProvider()
   const duplicateRenderer = new HookRenderer(
     BubblesNotificationsProvider,
     createProviderProps()
   )
 
-  await assert.rejects(
-    () => duplicateRenderer.flush(),
-    /Only one BubblesNotificationsProvider may be mounted at a time\./
-  )
+  await duplicateRenderer.flush()
 
-  assert.equal(notificationHandlerAcquireCallCount, 1)
-  assert.equal(notificationHandlerReleaseCallCount, 0)
-  assert.equal(responseObserverCalls.length, 1)
+  assert.equal(notificationHandlerAcquireCallCount, 2)
+  assert.equal(notificationHandlerReleaseCallCount, 1)
+  assert.equal(responseObserverCalls.length, 2)
+  assert.equal(responseObserverCleanupCallCount, 1)
+  assert.equal(appStateListeners.size, 1)
 
   firstRenderer.unmount()
   assert.equal(notificationHandlerReleaseCallCount, 1)
+  assert.equal(responseObserverCleanupCallCount, 1)
+  assert.equal(appStateListeners.size, 1)
+  duplicateRenderer.unmount()
+  assert.equal(notificationHandlerReleaseCallCount, 2)
+  assert.equal(responseObserverCleanupCallCount, 2)
+  assert.equal(appStateListeners.size, 0)
 })
 
 test('BubblesNotificationsProvider enrolls explicitly without provider authentication props', async () => {

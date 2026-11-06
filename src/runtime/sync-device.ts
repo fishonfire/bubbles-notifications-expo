@@ -112,12 +112,13 @@ function buildRuntimeSnapshot (
 async function syncBubblesDeviceAttributes (
   apiBaseUrl: string,
   appKey: string,
-  deviceId: string
+  deviceId: string,
+  isCurrent?: () => boolean
 ): Promise<BubblesDeviceAttributeSyncResult> {
   try {
     const attributes = await collectBubblesDeviceAttributes()
 
-    if (Object.keys(attributes).length === 0) {
+    if ((isCurrent && !isCurrent()) || Object.keys(attributes).length === 0) {
       return { status: 'skipped', error: null }
     }
 
@@ -187,8 +188,9 @@ export async function syncDeviceRegistrationState (
     }
 
     if (nextDeviceId) {
-      const syncAttributes = () => syncBubblesDeviceAttributes(apiBaseUrl, appKey, nextDeviceId)
+      const syncAttributes = () => syncBubblesDeviceAttributes(apiBaseUrl, appKey, nextDeviceId, options.isCurrent)
       const flushDeliveryStatuses = async () => {
+        if (options.isCurrent && !options.isCurrent()) return
         try {
           await flushStoredBubblesDeliveryStatuses(storedDeviceState)
         } catch (error) {

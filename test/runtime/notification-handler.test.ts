@@ -66,18 +66,21 @@ test('notification handler installs once and remains installed after owner clean
   releaseSecondOwner()
 })
 
-test('notification handler rejects a second owner without clearing global state', async () => {
-  const { acquireBubblesNotificationHandler } = await import(
+test('notification handler hands over options and ignores stale updates and cleanup', async () => {
+  const { acquireBubblesNotificationHandler, updateBubblesNotificationHandler } = await import(
     '../../src/runtime/notification-handler.ts'
   )
   const Notifications = await import('expo-notifications')
-  const releaseOwner = acquireBubblesNotificationHandler({})
+  const firstOwner = {}
+  const releaseOwner = acquireBubblesNotificationHandler(firstOwner)
+  const nextOwner = {}
+  const releaseNextOwner = acquireBubblesNotificationHandler(nextOwner)
 
-  assert.throws(
-    () => acquireBubblesNotificationHandler({}),
-    /Only one BubblesNotificationsProvider may be mounted at a time\./
-  )
+  updateBubblesNotificationHandler(nextOwner, { shouldPlaySound: true })
+  updateBubblesNotificationHandler(firstOwner, { shouldPlaySound: false })
+  releaseOwner()
   assert.equal(installedHandlers.length, 1)
+  assert.equal((await installedHandlers[0]?.handleNotification(undefined as never))?.shouldPlaySound, true)
 
   const unrelatedHandler = {
     handleNotification: async () => ({
@@ -89,10 +92,24 @@ test('notification handler rejects a second owner without clearing global state'
   } satisfies NotificationHandler
 
   Notifications.setNotificationHandler(unrelatedHandler)
-  releaseOwner()
+  releaseNextOwner()
   assert.equal(installedHandlers.length, 2)
   assert.equal(
     installedHandlers[installedHandlers.length - 1],
     unrelatedHandler
   )
+})
+
+test('same-owner replay cannot release a newer notification handler lease', async () => {
+  const { acquireBubblesNotificationHandler, updateBubblesNotificationHandler } = await import(
+    '../../src/runtime/notification-handler.ts'
+  )
+  const owner = {}
+  const releaseOld = acquireBubblesNotificationHandler(owner)
+  const releaseNew = acquireBubblesNotificationHandler(owner)
+
+  updateBubblesNotificationHandler(owner, { shouldShowBanner: false })
+  releaseOld()
+  assert.equal((await installedHandlers[0]?.handleNotification(undefined as never))?.shouldShowBanner, false)
+  releaseNew()
 })
