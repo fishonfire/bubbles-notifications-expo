@@ -72,9 +72,19 @@ async function resolveMigrationSubscription (
   return subscriptionId
 }
 
+export interface RegistrationIdentity {
+  installationId: string;
+  oneSignalSubscriptionId: string | null;
+  registrationScope: string;
+  deviceId: string | null;
+  oneSignalAppId?: string;
+  /** Scoped predecessor for logout; never used as enrollment identity. */
+  logoutDeviceId?: string | null;
+}
+
 export async function resolveRegistrationIdentity (options: {
   apiBaseUrl: string; appId: string | number; appKey: string; isCurrent?: () => boolean; oneSignalMigration?: OneSignalMigration;
-}) {
+}): Promise<RegistrationIdentity> {
   if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
   const installationId = await getOrCreateInstallationId()
 
@@ -88,7 +98,10 @@ export async function resolveRegistrationIdentity (options: {
     (migration?.policy !== 'required' || !!state.oneSignalSubscriptionId)
   const oneSignalSubscriptionId = await resolveMigrationSubscription(state, registrationScope, migration, acknowledged, options.isCurrent)
 
+  const logoutDeviceId = state.registrationLogoutTargets?.[registrationScope] ?? state.deviceId ?? state.legacyLogoutTargets?.[registrationScope]
+
   return { installationId, oneSignalSubscriptionId, registrationScope,
+    ...(logoutDeviceId ? { logoutDeviceId } : {}),
     deviceId: acknowledged ? state.deviceId : null,
     oneSignalAppId: state.oneSignalAppId ?? (migration?.policy === 'required' ? migration.oneSignalAppId.trim() : undefined) }
 }

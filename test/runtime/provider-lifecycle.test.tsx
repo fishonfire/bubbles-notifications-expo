@@ -73,26 +73,28 @@ vi.doMock('../../src/storage/device-state', () => ({
   readStoredDeviceStateAsync: async () => ({ ...native.stored }),
   readStoredDeviceIdAsync: async () => native.stored.deviceId,
   patchStoredDeviceStateAsync: async (patch: StoredDeviceState) => (native.stored = { ...native.stored, ...patch }),
-  acknowledgeRegistrationScope: async (_scope: string, deviceId: string, installationId: string, _subscription: unknown, _appId: unknown, isCurrent?: () => boolean) => {
+  acknowledgeRegistrationScope: async (scope: string, deviceId: string, installationId: string, _subscription: unknown, _appId: unknown, isCurrent?: () => boolean) => {
     if (isCurrent && !isCurrent()) throw new Error('Stale acknowledgement')
+    delete native.stored.registrationLogoutTargets?.[scope]
     native.stored = { ...native.stored, deviceId, identityAcknowledged: true, acknowledgedInstallationId: installationId }
 
     return { ...native.stored }
   },
   markPendingLogout: async (scope: string, deviceId: string | null) => {
     native.mark(scope, deviceId)
-    // Mirror the atomic storage contract: a bound pending canonical target
-    // takes priority over a later provider snapshot. Actual storage is tested
-    // separately; this suite verifies the provider's stale-argument lifecycle.
-    const scopedTarget = native.stored.registrationScope === scope ? native.stored.deviceId : native.stored.legacyLogoutTargets?.[scope] ?? null
+    // Mirror the storage contract at this boundary: pending/receipt/trusted
+    // targets take priority over a caller snapshot. Actual persistence is
+    // tested separately; this suite verifies provider lifecycle orchestration.
+    const scopedTarget = native.stored.registrationLogoutTargets?.[scope] ?? (native.stored.registrationScope === scope ? native.stored.deviceId : native.stored.legacyLogoutTargets?.[scope] ?? null)
 
-    native.stored.pendingLogouts = { ...native.stored.pendingLogouts, [scope]: native.stored.pendingLogouts?.[scope] ?? deviceId ?? scopedTarget }
+    native.stored.pendingLogouts = { ...native.stored.pendingLogouts, [scope]: native.stored.pendingLogouts?.[scope] ?? scopedTarget ?? deviceId }
   },
   clearPendingLogout: async (scope: string) => { delete native.stored.pendingLogouts?.[scope] },
   bindPendingLogoutTarget: async (scope: string, deviceId: string, previousDeviceId?: string | null) => {
     native.bind(scope, deviceId, previousDeviceId)
+    native.stored.registrationLogoutTargets = { ...native.stored.registrationLogoutTargets, [scope]: deviceId }
     if (!native.stored.pendingLogouts || !Object.prototype.hasOwnProperty.call(native.stored.pendingLogouts, scope)) return false
-    if (native.stored.pendingLogouts[scope] === null || (previousDeviceId != null && native.stored.pendingLogouts[scope] === previousDeviceId)) native.stored.pendingLogouts[scope] = deviceId
+    if (native.stored.pendingLogouts[scope] === null || native.stored.pendingLogouts[scope] === native.stored.legacyLogoutTargets?.[scope] || (previousDeviceId != null && native.stored.pendingLogouts[scope] === previousDeviceId)) native.stored.pendingLogouts[scope] = deviceId
 
     return true
   }
@@ -1192,5 +1194,99 @@ test('a repeated logout from stale provider state keeps retrying the recovered c
   await settle()
   assert.equal(native.update.mock.calls[native.update.mock.calls.length - 1][0], canonicalDeviceId)
   assert.deepEqual(native.stored.pendingLogouts, {})
+  assertListeners(1)
+})
+
+for (const existingIdentity of [false, true]) {
+  test(`a later compatible root logout disables the canonical result completed between roots, existing identity=${existingIdentity}`, async () => {
+    const canonicalDeviceId = 'between-roots-canonical-device'
+
+    if (existingIdentity) acknowledgeStoredDevice()
+    const oldRoot = await mount('old')
+    let releaseResponse!: (value: { action: string; deviceId: string }) => void
+    const response = new Promise<{ action: string; deviceId: string }>((resolve) => { releaseResponse = resolve })
+    let registration: Promise<void> | undefined
+
+    native.sync.mockImplementationOnce(() => response)
+    native.update.mockImplementation(async (deviceId) => {
+      if (deviceId === ACKNOWLEDGED_DEVICE_ID) throw Object.assign(new Error('Obsolete device'), { status: 404 })
+    })
+    try {
+      await act(async () => {
+        registration = required(contexts.get('old')).registerDevice({ userId: 'between-roots-user' })
+        void registration.catch(() => undefined)
+      })
+      await settle()
+      assert.equal(native.sync.mock.calls.length, 1)
+      await unmount(oldRoot)
+      assertListeners(0)
+    } finally {
+      await act(async () => {
+        releaseResponse({ action: 'created', deviceId: canonicalDeviceId })
+        await Promise.allSettled([registration])
+      })
+      await settle()
+    }
+    assert.equal(native.update.mock.calls.length, 0, 'the outgoing response completes before any logout intent exists')
+    assert.equal(native.stored.deviceId, existingIdentity ? ACKNOWLEDGED_DEVICE_ID : null)
+    const operations: Promise<void>[] = []
+    const onOperation = (operation: Promise<void>) => { operations.push(operation) }
+    let replacement!: ReactTestRenderer
+
+    await act(async () => {
+      replacement = create(<BubblesNotificationsProvider {...config}>
+        <LogoutFromLayout onOperation={onOperation} />
+
+        <Consumer name='replacement' />
+      </BubblesNotificationsProvider>)
+    })
+    roots.push(replacement)
+    await act(async () => { await Promise.all(operations) })
+    await settle()
+    assert.deepEqual(native.update.mock.calls.map(([deviceId]) => deviceId), [canonicalDeviceId])
+    assert.deepEqual(native.stored.pendingLogouts, {})
+    assert.equal(required(contexts.get('replacement')).notificationsEnabled, false)
+    assertListeners(1)
+  })
+}
+
+test('successful replacement enrollment supersedes a logout-only stale canonical receipt', async () => {
+  const staleDeviceId = 'superseded-receipt-device'
+  const unrelatedScope = 'https://unrelated-receipt.example/other-app'
+  const unrelatedDeviceId = 'unrelated-receipt-device'
+  const oldRoot = await mount('old')
+  let releaseResponse!: (value: { action: string; deviceId: string }) => void
+  const response = new Promise<{ action: string; deviceId: string }>((resolve) => { releaseResponse = resolve })
+  let registration: Promise<void> | undefined
+
+  native.sync.mockImplementationOnce(() => response)
+  try {
+    await act(async () => {
+      registration = required(contexts.get('old')).registerDevice({ userId: 'outgoing-receipt-user' })
+      void registration.catch(() => undefined)
+    })
+    await settle()
+    await unmount(oldRoot)
+  } finally {
+    await act(async () => { releaseResponse({ action: 'created', deviceId: staleDeviceId }); await Promise.allSettled([registration]) })
+    await settle()
+  }
+  const scope = `${config.apiBaseUrl}/${config.appId}`
+
+  assert.equal(native.stored.registrationLogoutTargets?.[scope], staleDeviceId)
+  assert.equal(native.stored.deviceId, null)
+  assert.equal(native.stored.pendingLogouts, undefined)
+  native.stored.registrationLogoutTargets = { ...native.stored.registrationLogoutTargets, [unrelatedScope]: unrelatedDeviceId }
+  await mount('replacement')
+  await act(async () => { await required(contexts.get('replacement')).registerDevice({ userId: 'replacement-receipt-user' }) })
+  assert.equal(native.sync.mock.calls[1][0].deviceId, null, 'a logout-only receipt must never become enrollment identity')
+  assert.equal(native.stored.registrationLogoutTargets?.[scope], undefined)
+  assert.equal(native.stored.registrationLogoutTargets?.[unrelatedScope], unrelatedDeviceId)
+  await act(async () => { await required(contexts.get('replacement')).logout() })
+  await settle()
+  assert.deepEqual(native.update.mock.calls.map(([deviceId]) => deviceId), [CURRENT_DEVICE_ID])
+  assert.equal(native.stored.registrationLogoutTargets?.[unrelatedScope], unrelatedDeviceId)
+  assert.deepEqual(native.stored.pendingLogouts, {})
+  assert.equal(required(contexts.get('replacement')).notificationsEnabled, false)
   assertListeners(1)
 })

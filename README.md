@@ -147,6 +147,8 @@ Mount one `BubblesNotificationsProvider` around your app. Native activity recrea
 
 Registration, maintenance, and startup storage preparation share a process-wide queue. Handover invalidates queued old enrollment and prevents stale asynchronous results from acknowledging storage or updating runtime state. Requests already sent to a backend cannot be recalled; the replacement waits for in-flight registration to settle before starting its own. Each replacement starts a new explicit enrollment session: call `registerDevice(options)` again after authentication, including when switching users. Calls through a retired provider reject. No authenticated user/session is implicitly copied between providers.
 
+Validated canonical IDs returned after retirement are stored per backend/app as logout-only provenance, so a later logout can disable the right device even when there was a gap between providers. Enrollment reconciles identity independently; a successful enrollment supersedes that scope's saved logout target.
+
 The package owns Expo's process-global notification handler and installs it once for the lifetime of the JavaScript process. Final provider cleanup removes package listeners but intentionally does not clear the global handler, because another part of the app may have replaced it. Do not also call `Notifications.setNotificationHandler()` elsewhere; configure foreground behavior with the provider's `foregroundPresentation` prop.
 
 ## Delivery statistics

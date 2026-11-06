@@ -23,7 +23,7 @@ export async function retryBubblesLogout (configuration: BubblesLogoutConfigurat
   // ownership without guessing across apps or credential rotations.
   const matchesLegacyConfiguration = !state.registrationScope && state.apiBaseUrl !== null &&
     state.appKey === configuration.appKey && getRegistrationScope(state.apiBaseUrl, configuration.appId) === scope
-  const deviceId = pendingTarget ?? ((state.registrationScope === scope || matchesLegacyConfiguration ? state.deviceId : null) ?? state.legacyLogoutTargets?.[scope])
+  const deviceId = pendingTarget ?? state.registrationLogoutTargets?.[scope] ?? ((state.registrationScope === scope || matchesLegacyConfiguration ? state.deviceId : null) ?? state.legacyLogoutTargets?.[scope])
 
   if (!deviceId) {
     await clearPendingLogout(scope, pendingTarget)
