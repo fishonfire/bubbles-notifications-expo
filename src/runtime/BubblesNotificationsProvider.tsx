@@ -152,7 +152,7 @@ export function BubblesNotificationsProvider (
   const migrationPolicy = oneSignalMigration?.policy ?? 'disabled'
   const migrationBridge = oneSignalMigration?.policy === 'required' ? oneSignalMigration.bridge : undefined
   const migrationAppId = oneSignalMigration?.policy === 'required' ? oneSignalMigration.oneSignalAppId : undefined
-  const migrationTimeout = oneSignalMigration?.policy === 'required' ? oneSignalMigration.readinessTimeoutMs : undefined
+  const migrationTimeout = oneSignalMigration?.policy === 'required' ? (oneSignalMigration.readinessTimeoutMs ?? 3000) : undefined
   const stableMigration = useMemo(() => migrationPolicy === 'required' && migrationBridge && migrationAppId !== undefined
     ? { policy: 'required' as const, bridge: migrationBridge, oneSignalAppId: migrationAppId, readinessTimeoutMs: migrationTimeout }
     : undefined, [migrationPolicy, migrationBridge, migrationAppId, migrationTimeout])
@@ -373,6 +373,9 @@ export function BubblesNotificationsProvider (
       })
 
     isMountedRef.current = true
+    setState((current) => current.notificationsEnabled
+      ? { ...current, notificationsEnabled: false }
+      : current)
 
     return release
   }, [appId, appKey, apiBaseUrl, stableMigration, isMountedRef, invalidateRegistrations, clearLogoutRetry])
@@ -424,7 +427,7 @@ export function BubblesNotificationsProvider (
           storedDeviceState.apiBaseUrl &&
           storedDeviceState.appKey
         ) {
-          await flushStoredDeliveryStatusesBestEffort(
+          void flushStoredDeliveryStatusesBestEffort(
             'during provider startup',
             storedDeviceState
           )

@@ -93,7 +93,9 @@ export function useBubblesRegistrationCoordinator (
       .finally(() => {
         pendingRegistrationsRef.current -= 1
 
-        if (isCurrent()) {
+        // Pending work belongs to this hook instance even when its results
+        // belong to an invalidated generation (for example a config change).
+        if (isMountedRef.current) {
           setState((currentState) => ({
             ...currentState,
             isSyncing: pendingRegistrationsRef.current > 0

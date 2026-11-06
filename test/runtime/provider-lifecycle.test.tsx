@@ -5,13 +5,18 @@ import { afterEach, beforeEach, test, vi } from 'vitest'
 import type { BubblesNotificationsContextValue, BubblesNotificationsProviderProps } from '../../src/runtime/context'
 import type { StoredDeviceState } from '../../src/storage/device-state'
 
+const CURRENT_DEVICE_ID = 'device-current'
+
 type Listener = (value: never) => void
 const native = vi.hoisted(() => ({
   messages: new Set<Listener>(), responses: new Set<Listener>(), tokens: new Set<Listener>(), appStates: new Set<Listener>(),
+  flush: vi.fn(async (_state?: StoredDeviceState): Promise<void> => undefined),
+  token: vi.fn(async () => 'token-current'),
+  prepare: vi.fn(),
   schedule: vi.fn(async () => 'local-id'),
   handler: null as null | { handleNotification: () => Promise<Record<string, boolean>> },
   sync: vi.fn(async (_options: Record<string, unknown>) => ({ action: 'created', deviceId: 'initial-device' })),
-  update: vi.fn(async () => undefined),
+  update: vi.fn(async (_deviceId: string, _attributes: Record<string, unknown>): Promise<void> => undefined),
   stored: { deviceId: null, apiBaseUrl: null, appKey: null } as StoredDeviceState
 }))
 
@@ -32,7 +37,7 @@ vi.doMock('react-native', () => ({
 }))
 vi.doMock('expo-constants', () => ({ default: { expoConfig: { extra: { bubblesNotificationsExpo: { defaultChannelId: 'default', defaultChannelName: 'Default', androidChannelImportance: 'default' } } } } }))
 vi.doMock('@react-native-firebase/messaging', () => ({
-  getMessaging: () => ({}), getToken: async () => 'token-current',
+  getMessaging: () => ({}), getToken: native.token,
   isDeviceRegisteredForRemoteMessages: () => true, registerDeviceForRemoteMessages: async () => undefined,
   onMessage: (_instance: unknown, listener: Listener) => subscribe(native.messages, listener),
   onTokenRefresh: (_instance: unknown, listener: Listener) => subscribe(native.tokens, listener)
@@ -55,6 +60,7 @@ vi.doMock('../../src/storage/installation-id', () => ({ getOrCreateInstallationI
 vi.doMock('../../src/storage/device-state', () => ({
   getRegistrationScope: (url: string, appId: string | number) => `${url}/${appId}`,
   prepareRegistrationScope: async (url: string, appId: string | number, appKey: string, isCurrent?: () => boolean) => {
+    native.prepare(url, appId, appKey)
     if (isCurrent && !isCurrent()) throw new Error('Stale scope')
     native.stored = { ...native.stored, apiBaseUrl: url, appKey, registrationScope: `${url}/${appId}` }
 
@@ -70,7 +76,13 @@ vi.doMock('../../src/storage/device-state', () => ({
     return { ...native.stored }
   },
   markPendingLogout: async (scope: string, deviceId: string | null) => { native.stored.pendingLogouts = { ...native.stored.pendingLogouts, [scope]: deviceId } },
-  clearPendingLogout: async (scope: string) => { delete native.stored.pendingLogouts?.[scope] }
+  clearPendingLogout: async (scope: string) => { delete native.stored.pendingLogouts?.[scope] },
+  bindPendingLogoutTarget: async (scope: string, deviceId: string) => {
+    if (!native.stored.pendingLogouts || !Object.prototype.hasOwnProperty.call(native.stored.pendingLogouts, scope)) return false
+    if (native.stored.pendingLogouts[scope] === null) native.stored.pendingLogouts[scope] = deviceId
+
+    return true
+  }
 }))
 vi.doMock('../../src/api/device-client', () => ({
   syncBubblesDevice: native.sync,
@@ -79,7 +91,7 @@ vi.doMock('../../src/api/device-client', () => ({
 }))
 vi.doMock('../../src/runtime/device-attributes', () => ({ collectBubblesDeviceAttributes: async () => ({}) }))
 vi.doMock('../../src/notifications/delivery-status', () => ({
-  flushStoredBubblesDeliveryStatuses: async () => undefined,
+  flushStoredBubblesDeliveryStatuses: native.flush,
   observeStoredBubblesNotificationReceived: async () => undefined,
   observeStoredBubblesNotificationClicked: async () => undefined,
   observeStoredBubblesLocalDisplayRequested: async () => undefined
@@ -142,7 +154,10 @@ beforeEach(async () => {
   await import('@react-native-firebase/messaging')
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
   native.stored = { deviceId: null, apiBaseUrl: null, appKey: null }
-  native.sync.mockReset().mockImplementation(async () => ({ action: 'created', deviceId: 'device-current' }))
+  native.sync.mockReset().mockImplementation(async () => ({ action: 'created', deviceId: CURRENT_DEVICE_ID }))
+  native.flush.mockReset().mockResolvedValue(undefined)
+  native.token.mockClear()
+  native.prepare.mockClear()
   native.schedule.mockClear()
   native.update.mockClear()
   contexts.clear()
@@ -252,7 +267,7 @@ test('deferred enrollment drains before replacement enrollment and cannot acknow
   await settle()
   assert.equal(native.sync.mock.calls.length, 2)
   assert.deepEqual(native.sync.mock.calls.map(([options]) => options.userId), ['old-user', 'current-user'])
-  assert.equal(native.stored.deviceId, 'device-current')
+  assert.equal(native.stored.deviceId, CURRENT_DEVICE_ID)
   assert.equal(required(contexts.get('current')).notificationsEnabled, true)
   await assert.rejects(oldContext.registerDevice({ userId: 'stale-user' }))
   assert.equal(native.sync.mock.calls.length, 2)
@@ -304,4 +319,206 @@ test('current provider configuration updates retain presentation and retire stal
   assert.equal((await required(native.handler).handleNotification()).shouldPlaySound, true)
   await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'new-user' }) })
   assert.equal(native.sync.mock.calls[native.sync.mock.calls.length - 1]?.[0].appKey, 'rotated-key')
+})
+
+function acknowledgeStoredDevice () {
+  native.stored = {
+    ...config,
+    deviceId: 'acknowledged-device',
+    registrationScope: `${config.apiBaseUrl}/${config.appId}`,
+    identityAcknowledged: true,
+    acknowledgedInstallationId: 'installation',
+    oneSignalAppId: 'migration-app',
+    oneSignalSubscriptionId: 'legacy-subscription'
+  }
+}
+
+function migrationConfiguration (readinessTimeoutMs?: number) {
+  return {
+    policy: 'required' as const,
+    oneSignalAppId: 'migration-app',
+    bridge: { getSubscriptionId: async () => 'legacy-subscription', subscribe: (_listener: (id: string | null) => void) => () => undefined },
+    readinessTimeoutMs
+  }
+}
+
+test('a deferred bootstrap delivery flush does not block enrollment, logout, or replacement startup', async () => {
+  acknowledgeStoredDevice()
+  let release!: () => void
+  const deferred = new Promise<void>((resolve) => { release = resolve })
+  const operations: Promise<unknown>[] = []
+
+  native.flush.mockImplementationOnce(() => deferred)
+  try {
+    await mount('old')
+    assert.equal(native.flush.mock.calls.length, 1)
+    let registered = false
+    let loggedOut = false
+
+    await act(async () => {
+      operations.push(required(contexts.get('old')).registerDevice({ userId: 'flush-user' }).then(() => { registered = true }))
+    })
+    await settle()
+    assert.equal(registered, true, 'a best-effort delivery flush must not hold enrollment')
+    assert.equal(native.sync.mock.calls.length, 1)
+    await act(async () => {
+      operations.push(required(contexts.get('old')).logout().then(() => { loggedOut = true }))
+    })
+    await settle()
+    assert.equal(loggedOut, true, 'a best-effort delivery flush must not hold logout')
+    assert.equal(native.update.mock.calls.length, 1)
+    const preparedBeforeReplacement = native.prepare.mock.calls.length
+
+    await mount('replacement')
+    assert.ok(native.prepare.mock.calls.length > preparedBeforeReplacement, 'replacement startup must proceed before the flush resolves')
+    assertListeners(1)
+  } finally {
+    await act(async () => { release(); await Promise.allSettled(operations) })
+    await settle()
+  }
+})
+
+test('an omitted migration timeout and explicit default retain the enrolled session and maintenance', async () => {
+  acknowledgeStoredDevice()
+  const migration = migrationConfiguration()
+  const root = await mount('current', { oneSignalMigration: migration })
+
+  await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'migration-user' }) })
+  assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+  const tokenReads = native.token.mock.calls.length
+
+  await act(async () => { root.update(tree('current', { oneSignalMigration: { ...migration, readinessTimeoutMs: 3000 } })) })
+  await settle()
+  assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+  emit(native.tokens, 'refreshed-token')
+  await settle()
+  assert.ok(native.token.mock.calls.length > tokenReads, 'the original enrolled session must still receive maintenance')
+  assertListeners(1)
+})
+
+for (const changed of ['bridge', 'appId', 'timeout'] as const) {
+  test(`changing required migration ${changed} immediately suspends enabled session state`, async () => {
+    acknowledgeStoredDevice()
+    const migration = migrationConfiguration(1000)
+    const root = await mount('current', { oneSignalMigration: migration })
+
+    await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'migration-user' }) })
+    assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+    const nextMigration = {
+      ...migration,
+      ...(changed === 'bridge' ? { bridge: migrationConfiguration().bridge } : {}),
+      ...(changed === 'appId' ? { oneSignalAppId: 'replacement-migration-app' } : {}),
+      ...(changed === 'timeout' ? { readinessTimeoutMs: 2000 } : {})
+    }
+
+    await act(async () => { root.update(tree('current', { oneSignalMigration: nextMigration })) })
+    assert.equal(required(contexts.get('current')).notificationsEnabled, false)
+    await settle()
+    assertListeners(1)
+  })
+}
+
+test('migration changes invalidate deferred enrollment while eventually clearing syncing state', async () => {
+  acknowledgeStoredDevice()
+  const migration = migrationConfiguration(1000)
+  const root = await mount('current', { oneSignalMigration: migration })
+  let release!: (value: { action: string; deviceId: string }) => void
+  const deferred = new Promise<{ action: string; deviceId: string }>((resolve) => { release = resolve })
+  let registration!: Promise<void>
+
+  native.sync.mockImplementationOnce(() => deferred)
+  try {
+    await act(async () => {
+      registration = required(contexts.get('current')).registerDevice({ userId: 'deferred-migration-user' })
+      void registration.catch(() => undefined)
+    })
+    await settle()
+    assert.equal(native.sync.mock.calls.length, 1)
+    assert.equal(required(contexts.get('current')).isSyncing, true)
+    await act(async () => { root.update(tree('current', { oneSignalMigration: { ...migration, readinessTimeoutMs: 2000 } })) })
+  } finally {
+    await act(async () => { release({ action: 'created', deviceId: 'stale-migration-device' }); await Promise.allSettled([registration]) })
+    await settle()
+  }
+  assert.equal(native.stored.deviceId, 'acknowledged-device')
+  assert.equal(required(contexts.get('current')).notificationsEnabled, false)
+  assert.equal(required(contexts.get('current')).isSyncing, false)
+})
+
+test('logout during the first enrollment disables its canonical result even after provider handover', async () => {
+  let release!: (value: { action: string; deviceId: string }) => void
+  const deferred = new Promise<{ action: string; deviceId: string }>((resolve) => { release = resolve })
+  let registration!: Promise<void>
+  let logout!: Promise<void>
+
+  native.sync.mockImplementationOnce(() => deferred)
+  await mount('old')
+  try {
+    await act(async () => {
+      registration = required(contexts.get('old')).registerDevice({ userId: 'outgoing-user' })
+      void registration.catch(() => undefined)
+    })
+    await settle()
+    assert.equal(native.sync.mock.calls.length, 1)
+    await act(async () => { logout = required(contexts.get('old')).logout() })
+    await settle()
+    assert.equal(native.stored.pendingLogouts?.[`${config.apiBaseUrl}/${config.appId}`], null)
+    await mount('replacement')
+    assertListeners(1)
+  } finally {
+    await act(async () => { release({ action: 'created', deviceId: 'outgoing-canonical-device' }); await Promise.allSettled([registration, logout]) })
+    await settle()
+  }
+  assert.deepEqual(native.update.mock.calls.map(([deviceId, attributes]) => ({ deviceId, attributes })), [{ deviceId: 'outgoing-canonical-device', attributes: { notifications_enabled: false } }])
+  assert.equal(native.stored.deviceId, null)
+  assert.equal(native.stored.identityAcknowledged, undefined)
+  assert.deepEqual(native.stored.pendingLogouts, {})
+  assert.equal(required(contexts.get('replacement')).notificationsEnabled, false)
+  await act(async () => { await required(contexts.get('replacement')).registerDevice({ userId: 'replacement-user' }) })
+  assert.equal(native.stored.deviceId, CURRENT_DEVICE_ID)
+  assert.equal(required(contexts.get('replacement')).notificationsEnabled, true)
+})
+
+test('replacement enrollment waits for the outgoing canonical disable request to complete', async () => {
+  const departingDeviceId = 'departing-canonical-device'
+  let releaseEnrollment!: (value: { action: string; deviceId: string }) => void
+  let releaseDisable!: () => void
+  const enrollment = new Promise<{ action: string; deviceId: string }>((resolve) => { releaseEnrollment = resolve })
+  const disable = new Promise<void>((resolve) => { releaseDisable = resolve })
+  const operations: Promise<unknown>[] = []
+
+  native.sync.mockImplementationOnce(() => enrollment)
+  native.update.mockImplementationOnce(() => disable)
+  await mount('old')
+  try {
+    await act(async () => {
+      const registration = required(contexts.get('old')).registerDevice({ userId: 'departing-user' })
+
+      void registration.catch(() => undefined)
+      operations.push(registration)
+    })
+    await settle()
+    await act(async () => { operations.push(required(contexts.get('old')).logout()) })
+    await mount('replacement')
+    await act(async () => {
+      operations.push(required(contexts.get('replacement')).registerDevice({ userId: 'incoming-user' }))
+      releaseEnrollment({ action: 'created', deviceId: departingDeviceId })
+    })
+    await settle()
+    assert.equal(native.update.mock.calls.length, 1)
+    assert.equal(native.update.mock.calls[0][0], departingDeviceId)
+    assert.equal(native.sync.mock.calls.length, 1, 'the replacement POST must wait for the old identity to be disabled')
+    assert.equal(native.stored.deviceId, null)
+    assert.equal(required(contexts.get('replacement')).notificationsEnabled, false)
+  } finally {
+    await act(async () => {
+      releaseEnrollment({ action: 'created', deviceId: departingDeviceId })
+      releaseDisable()
+      await Promise.allSettled(operations)
+    })
+    await settle()
+  }
+  assert.equal(native.sync.mock.calls.length, 2)
+  assert.equal(native.stored.deviceId, CURRENT_DEVICE_ID)
+  assert.equal(required(contexts.get('replacement')).notificationsEnabled, true)
 })

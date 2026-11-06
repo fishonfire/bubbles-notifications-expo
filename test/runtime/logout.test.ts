@@ -82,7 +82,7 @@ vi.doMock('expo-file-system', () => ({
 }))
 
 const { markBubblesLogout, retryBubblesLogout } = await import('../../src/runtime/logout.ts')
-const { getRegistrationScope, readStoredDeviceStateAsync, prepareRegistrationScope, acknowledgeRegistrationScope, markPendingLogout, clearPendingLogout } = await import('../../src/storage/device-state.ts')
+const { getRegistrationScope, readStoredDeviceStateAsync, prepareRegistrationScope, acknowledgeRegistrationScope, markPendingLogout, clearPendingLogout, bindPendingLogoutTarget } = await import('../../src/storage/device-state.ts')
 const configuration = { apiBaseUrl: 'https://push.example.test', appId: 42, appKey: 'test-key' }
 const scope = getRegistrationScope(configuration.apiBaseUrl, configuration.appId)
 const legacyDevice = 'legacy-device'
@@ -148,6 +148,48 @@ test('clears a drained null target without sending when no canonical device exis
   await retryBubblesLogout(configuration)
   assert.equal(fetchMock.mock.calls.length, 0)
   assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], undefined)
+})
+
+test('a stale first enrollment binds only its pending logout and disables before clearing intent', async () => {
+  await prepareRegistrationScope(configuration.apiBaseUrl, configuration.appId, configuration.appKey)
+  await markBubblesLogout(configuration, null)
+  const replacementConfiguration = { ...configuration, apiBaseUrl: wrongBackend }
+
+  await prepareRegistrationScope(replacementConfiguration.apiBaseUrl, replacementConfiguration.appId, replacementConfiguration.appKey)
+  assert.equal(await bindPendingLogoutTarget(scope, canonicalDevice), true)
+  let state = await readStoredDeviceStateAsync()
+
+  assert.equal(state.registrationScope, getRegistrationScope(wrongBackend, configuration.appId))
+  assert.equal(state.deviceId, null)
+  assert.equal(state.identityAcknowledged, false)
+  assert.equal(state.pendingLogouts?.[scope], canonicalDevice)
+  fetchMock.mockImplementationOnce(async () => {
+    assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], canonicalDevice)
+
+    throw new Error('disable failed')
+  })
+  await assert.rejects(retryBubblesLogout(configuration), /disable failed/)
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], canonicalDevice)
+  await retryBubblesLogout(configuration)
+  assert.equal(fetchMock.mock.calls[1][0], `${configuration.apiBaseUrl}/api/devices/${canonicalDevice}`)
+  assert.deepEqual(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)), { notifications_enabled: false })
+  state = await readStoredDeviceStateAsync()
+  assert.equal(state.pendingLogouts?.[scope], undefined)
+  assert.equal(state.deviceId, null)
+  assert.equal(state.registrationScope, getRegistrationScope(wrongBackend, configuration.appId))
+})
+
+test('stale enrollment cannot create logout intent or replace another known logout target', async () => {
+  assert.equal(await bindPendingLogoutTarget(scope, canonicalDevice), false)
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts, undefined)
+  await markPendingLogout(scope, knownDevice)
+  assert.equal(await bindPendingLogoutTarget(scope, canonicalDevice), true)
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], knownDevice)
+  const otherScope = getRegistrationScope(wrongBackend, configuration.appId)
+
+  await markPendingLogout(otherScope, null)
+  await bindPendingLogoutTarget(scope, canonicalDevice)
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[otherScope], null)
 })
 
 test('preserves a known target when marked again without an ID and conditionally clears', async () => {

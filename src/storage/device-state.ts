@@ -625,6 +625,21 @@ export async function markPendingLogout (scope: string, deviceId: string | null,
   }))
 }
 
+/** Preserve a drained enrollment's logout target without reviving its session. */
+export async function bindPendingLogoutTarget (scope: string, deviceId: string): Promise<boolean> {
+  let hasPendingLogout = false
+
+  await updateState((state) => {
+    hasPendingLogout = !!state.pendingLogouts && Object.prototype.hasOwnProperty.call(state.pendingLogouts, scope)
+
+    if (!hasPendingLogout || state.pendingLogouts?.[scope] !== null) return state
+
+    return { ...state, pendingLogouts: { ...state.pendingLogouts, [scope]: deviceId } }
+  })
+
+  return hasPendingLogout
+}
+
 export async function clearPendingLogout (scope: string, expectedTarget: string | null): Promise<void> {
   await updateState((state) => {
     if (!state.pendingLogouts || state.pendingLogouts[scope] !== expectedTarget) return state
