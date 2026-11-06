@@ -16,6 +16,7 @@ const native = vi.hoisted(() => ({
   prepare: vi.fn(),
   client: vi.fn(),
   mark: vi.fn(),
+  bind: vi.fn(),
   schedule: vi.fn(async () => 'local-id'),
   handler: null as null | { handleNotification: () => Promise<Record<string, boolean>> },
   sync: vi.fn(async (_options: Record<string, unknown>) => ({ action: 'created', deviceId: 'initial-device' })),
@@ -84,6 +85,7 @@ vi.doMock('../../src/storage/device-state', () => ({
   },
   clearPendingLogout: async (scope: string) => { delete native.stored.pendingLogouts?.[scope] },
   bindPendingLogoutTarget: async (scope: string, deviceId: string, previousDeviceId?: string | null) => {
+    native.bind(scope, deviceId, previousDeviceId)
     if (!native.stored.pendingLogouts || !Object.prototype.hasOwnProperty.call(native.stored.pendingLogouts, scope)) return false
     if (native.stored.pendingLogouts[scope] === null || (previousDeviceId != null && native.stored.pendingLogouts[scope] === previousDeviceId)) native.stored.pendingLogouts[scope] = deviceId
 
@@ -170,6 +172,7 @@ beforeEach(async () => {
   native.prepare.mockClear()
   native.client.mockClear()
   native.mark.mockClear()
+  native.bind.mockClear()
   native.schedule.mockClear()
   native.update.mockClear()
   contexts.clear()
@@ -734,4 +737,54 @@ for (const replacement of [false, true]) {
       assertListeners(immediatelyUnmounted ? 0 : 1)
     })
   }
+}
+
+for (const existingIdentity of [false, true]) {
+  test(`replacement layout logout preserves a canonical response queued before its commit, existing identity=${existingIdentity}`, async () => {
+    const canonicalDeviceId = 'response-before-handover-canonical'
+
+    if (existingIdentity) acknowledgeStoredDevice()
+    let releaseResponse!: (value: { action: string; deviceId: string }) => void
+    const response = new Promise<{ action: string; deviceId: string }>((resolve) => { releaseResponse = resolve })
+    let registration: Promise<void> | undefined
+    let logout: Promise<void> | undefined
+
+    native.sync.mockImplementationOnce(() => response)
+    await mount('old')
+    try {
+      await act(async () => {
+        registration = required(contexts.get('old')).registerDevice({ userId: 'response-race-user' })
+        void registration.catch(() => undefined)
+      })
+      await settle()
+      assert.equal(native.sync.mock.calls.length, 1)
+      assert.equal(native.sync.mock.calls[0][0].deviceId, existingIdentity ? ACKNOWLEDGED_DEVICE_ID : null)
+      // Resolve the exact I/O promise awaited by sync-device, queuing its
+      // continuation before the child's pre-acquisition logout can queue a mark.
+      // A synchronous React commit then retires that registration in this turn.
+      act(() => {
+        releaseResponse({ action: 'created', deviceId: canonicalDeviceId })
+        const replacement = create(<BubblesNotificationsProvider {...config}>
+          <LogoutOnCommit onLogout={(operation) => { logout = operation }} />
+
+          <Consumer name='replacement' />
+        </BubblesNotificationsProvider>)
+
+        roots.push(replacement)
+      })
+      assert.ok(logout, 'the compatible replacement must commit synchronously before any queued continuation runs')
+    } finally {
+      await act(async () => {
+        releaseResponse({ action: 'created', deviceId: canonicalDeviceId })
+        await Promise.allSettled([registration, logout])
+      })
+      await settle()
+    }
+    assert.deepEqual(native.update.mock.calls.map(([deviceId]) => deviceId), [canonicalDeviceId])
+    assert.ok(native.mark.mock.invocationCallOrder[0] < native.bind.mock.invocationCallOrder[0], 'accepted replacement must persist logout before stale canonical binding')
+    assert.equal(native.stored.deviceId, existingIdentity ? ACKNOWLEDGED_DEVICE_ID : null)
+    assert.deepEqual(native.stored.pendingLogouts, {})
+    assert.equal(required(contexts.get('replacement')).notificationsEnabled, false)
+    assertListeners(1)
+  })
 }

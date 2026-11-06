@@ -198,6 +198,23 @@ test('stale enrollment cannot create logout intent or replace another known logo
   assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], knownDevice)
 })
 
+test.each([null, knownDevice])('synchronous accepted logout marking precedes an already-ready stale response in serialized storage (%s)', async (previousDeviceId) => {
+  await prepareRegistrationScope(configuration.apiBaseUrl, configuration.appId, configuration.appKey)
+  // A resolved outgoing response has already scheduled its stale continuation.
+  const drainedResponse = Promise.resolve().then(() => bindPendingLogoutTarget(scope, canonicalDevice, previousDeviceId))
+  // Ownership acceptance invokes this synchronously before yielding the commit.
+  const marked = markBubblesLogout(configuration, previousDeviceId)
+
+  assert.equal(await drainedResponse, true)
+  await marked
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], canonicalDevice)
+  await retryBubblesLogout(configuration)
+  assert.equal(fetchMock.mock.calls[0][0], `${configuration.apiBaseUrl}/api/devices/${canonicalDevice}`)
+  assert.deepEqual(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)), { notifications_enabled: false })
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], undefined)
+  assert.equal((await readStoredDeviceStateAsync()).deviceId, null)
+})
+
 test('stale 404 recovery rebinds the old requested logout target to the returned canonical ID', async () => {
   await prepareRegistrationScope(configuration.apiBaseUrl, configuration.appId, configuration.appKey)
   await acknowledgeRegistrationScope(scope, knownDevice, installationId)

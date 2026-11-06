@@ -167,6 +167,7 @@ export function BubblesNotificationsProvider (
   const currentDeviceIdRef = useRef<string | null>(state.deviceId)
   const foregroundPresentationOwnerRef = useRef({})
   const ownershipAcceptedRef = useRef(false)
+  const pendingLogoutMarksRef = useRef(new Set<() => void>())
   const lifecycleVersionRef = useRef(0)
   const listenerCleanupsRef = useRef(new Set<() => void>())
   const observeCurrentProvider = useCallback((observe: () => (() => void) | undefined) => {
@@ -380,10 +381,14 @@ export function BubblesNotificationsProvider (
       // Child layout effects run first and may already have queued enrollment.
       // A failed acquisition has no React cleanup, so retire that work now.
       revoke()
+      for (const mark of [...pendingLogoutMarksRef.current]) mark()
       throw error
     }
 
     ownershipAcceptedRef.current = true
+    // Queue accepted logout storage mutations before stale enrollment
+    // continuations can attempt to bind their returned canonical identity.
+    for (const mark of [...pendingLogoutMarksRef.current]) mark()
     isMountedRef.current = true
     setState((current) => current.notificationsEnabled
       ? { ...current, notificationsEnabled: false }
@@ -610,12 +615,26 @@ export function BubblesNotificationsProvider (
 
       return markBubblesLogout(configuration, deviceId)
     }
-    // Descendant layout effects run before ownership acquisition. Defer their
-    // persistence until acquisition succeeds; accepted owners keep immediate
-    // marking and durable logout even if they subsequently retire.
+    // Descendant layout effects run first. Successful acquisition starts their
+    // marks synchronously; rejected acquisition rejects them without writing.
+    // Accepted owners retain immediate marking and durable logout on retirement.
     const marked = ownershipAcceptedRef.current
       ? markAcceptedLogout()
-      : Promise.resolve().then(markAcceptedLogout)
+      : new Promise<void>((resolve, reject) => {
+        const mark = () => {
+          if (!pendingLogoutMarksRef.current.delete(mark)) return
+          try {
+            resolve(markAcceptedLogout())
+          } catch (error) {
+            reject(error)
+          }
+        }
+
+        pendingLogoutMarksRef.current.add(mark)
+        // A descendant can throw before the parent's acquisition effect runs.
+        // Settle that never-accepted request too, without retaining a callback.
+        void Promise.resolve().then(mark)
+      })
     // Observe rejection immediately while the registration queue is draining.
     const markResult = marked.then(() => ({ error: null }), (error: unknown) => ({ error }))
 
