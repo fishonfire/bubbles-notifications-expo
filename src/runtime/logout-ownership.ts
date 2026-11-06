@@ -23,21 +23,16 @@ export function createLogoutOwnershipGate () {
   }
 
   function runLogout (operation: () => Promise<void>): Promise<void> {
-    const runAcceptedLogout = () => {
-      if (!accepted) {
-        failWithBubblesError('Logout requires successful BubblesNotificationsProvider ownership acquisition.')
-      }
-
-      return operation()
-    }
-
-    if (accepted) return runAcceptedLogout()
+    if (accepted) return operation()
 
     return new Promise<void>((resolve, reject) => {
       const run = () => {
         if (!pendingRequests.delete(run)) return
         try {
-          resolve(runAcceptedLogout())
+          if (!accepted) {
+            failWithBubblesError('Logout requires successful BubblesNotificationsProvider ownership acquisition.')
+          }
+          resolve(operation())
         } catch (error) {
           reject(error)
         }

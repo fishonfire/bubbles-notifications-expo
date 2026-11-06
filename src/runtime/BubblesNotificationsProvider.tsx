@@ -280,11 +280,9 @@ export function BubblesNotificationsProvider (
         await retryBubblesLogout(providerConfigurationRef.current)
 
         if (!isCurrent()) return
-        if (sessionSuspendedRef.current) {
-          return { notificationsEnabled: false }
-        } else {
-          return maintainEnrolledSession()
-        }
+        if (sessionSuspendedRef.current) return { notificationsEnabled: false }
+
+        return maintainEnrolledSession()
       }).then(() => {
         if (!isCurrent()) return
         clearLogoutRetry()
@@ -524,16 +522,20 @@ export function BubblesNotificationsProvider (
     if (!isMountedRef.current) failWithBubblesError('This BubblesNotificationsProvider has been replaced or unmounted.')
   }
 
+  function assertProviderOwnership (operation: 'Registration' | 'Logout') {
+    assertCurrentProvider()
+    if (!isCurrentBubblesProvider(providerOwnerRef.current)) {
+      failWithBubblesError(`${operation} requires successful BubblesNotificationsProvider ownership acquisition.`)
+    }
+  }
+
   const registerDevice: RegisterDevice = async (options?: RegisterDeviceOptions) => {
     // Reserve call order before waiting, so a later logout still supersedes
     // enrollment requested by a descendant before ownership acquisition.
     const operationId = ++desiredOperationRef.current
 
     if (!isCurrentBubblesProvider(providerOwnerRef.current)) await Promise.resolve()
-    assertCurrentProvider()
-    if (!isCurrentBubblesProvider(providerOwnerRef.current)) {
-      failWithBubblesError('Registration requires successful BubblesNotificationsProvider ownership acquisition.')
-    }
+    assertProviderOwnership('Registration')
     if (operationId !== desiredOperationRef.current) return
     const providerConfiguration = providerConfigurationRef.current
     const providerConfigurationVersion = providerConfigurationVersionRef.current
@@ -577,10 +579,7 @@ export function BubblesNotificationsProvider (
   }
 
   function beginLogout (operationId: number): Promise<void> {
-    assertCurrentProvider()
-    if (!isCurrentBubblesProvider(providerOwnerRef.current)) {
-      failWithBubblesError('Logout requires successful BubblesNotificationsProvider ownership acquisition.')
-    }
+    assertProviderOwnership('Logout')
     const configuration = providerConfigurationRef.current
     const lifecycleVersion = lifecycleVersionRef.current
     const isCurrent = () => isMountedRef.current && lifecycleVersionRef.current === lifecycleVersion
