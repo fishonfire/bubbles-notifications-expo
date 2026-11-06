@@ -210,8 +210,10 @@ const { logout } = useBubblesNotifications();
 await logout();
 ```
 
-Await completion before unmounting the provider. A failed request rejects and
-remains persisted for retry at startup, on foreground activation, and every 15
+Await completion before unmounting the provider. Once requested, queued logout
+work keeps its original backend configuration and continues after unmount or
+provider replacement. A failed request rejects and remains persisted for retry
+at startup, on foreground activation, and every 15
 seconds while the app is active. New `registerDevice(options)` calls process any
 pending device disable before enrolling the next authenticated session. Calling
 `logout()` repeatedly is safe. Successful enrollment restores notification

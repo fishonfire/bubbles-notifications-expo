@@ -190,7 +190,7 @@ export async function syncDeviceRegistrationState (
       // The POST may have enabled a device even though its provider retired.
       // Only preserve an already-requested logout's target; never acknowledge
       // the stale session or overwrite the replacement's registration scope.
-      if (await bindPendingLogoutTarget(identity.registrationScope, nextDeviceId)) {
+      if (await bindPendingLogoutTarget(identity.registrationScope, nextDeviceId, identity.deviceId)) {
         await retryBubblesLogout({ apiBaseUrl, appId: options.appId, appKey })
       }
       throw error

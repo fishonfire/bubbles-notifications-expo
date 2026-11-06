@@ -23,7 +23,7 @@ const storedApiBaseUrls: string[] = []
 const storedAppKeys: string[] = []
 const storedDeviceIds: (string | null)[] = []
 const deliveryStatusFlushCalls: Record<string, unknown>[] = []
-const pendingLogoutBindings: { scope: string; deviceId: string }[] = []
+const pendingLogoutBindings: { scope: string; deviceId: string; previousDeviceId?: string | null }[] = []
 const logoutRetries: Record<string, unknown>[] = []
 let hasPendingLogout = false
 let acknowledgementError: Error | null = null
@@ -113,8 +113,8 @@ vi.doMock('../../src/notifications/delivery-status.ts', () => ({
 }))
 
 vi.doMock('../../src/storage/device-state.ts', () => ({
-  bindPendingLogoutTarget: async (scope: string, deviceId: string) => {
-    pendingLogoutBindings.push({ scope, deviceId })
+  bindPendingLogoutTarget: async (scope: string, deviceId: string, previousDeviceId?: string | null) => {
+    pendingLogoutBindings.push({ scope, deviceId, previousDeviceId })
 
     return hasPendingLogout
   },
@@ -209,7 +209,7 @@ test('stale enrollment binds and disables a pending logout target without acknow
     registrationIdentity: { deviceId: null, registrationScope: 'old-scope', installationId: 'installation', oneSignalSubscriptionId: null, oneSignalAppId: undefined },
     isCurrent: () => current
   }), /Registration configuration changed/)
-  assert.deepEqual(pendingLogoutBindings, [{ scope: 'old-scope', deviceId: CREATED_DEVICE_ID }])
+  assert.deepEqual(pendingLogoutBindings, [{ scope: 'old-scope', deviceId: CREATED_DEVICE_ID, previousDeviceId: null }])
   assert.deepEqual(logoutRetries, [{ apiBaseUrl: API_BASE_URL, appId: 'app', appKey: 'key' }])
   assert.deepEqual(storedDeviceIds, [])
   assert.deepEqual(attributeCalls, [])
@@ -228,6 +228,29 @@ test('logout binding also survives invalidation during asynchronous acknowledgem
   assert.equal(pendingLogoutBindings.length, 1)
   assert.equal(logoutRetries.length, 1)
   assert.deepEqual(storedDeviceIds, [])
+})
+
+test('stale canonical recovery binds logout using the resolved request identity rather than the provider snapshot', async () => {
+  let current = true
+
+  hasPendingLogout = true
+  syncState.implementation = async () => {
+    current = false
+
+    // A 404 update recovery POST returns a replacement canonical device.
+    return { action: 'created', deviceId: CREATED_DEVICE_ID, response: { id: CREATED_DEVICE_ID } }
+  }
+  await assert.rejects(syncDeviceRegistrationState({
+    appId: 'app', appKey: 'key', apiBaseUrl: API_BASE_URL, userId: 'old-user', deviceId: 'provider-snapshot-device',
+    registrationState: tokenState.registrationState,
+    registrationIdentity: { deviceId: EXISTING_DEVICE_ID, registrationScope: 'old-scope', installationId: 'installation', oneSignalSubscriptionId: null, oneSignalAppId: undefined },
+    isCurrent: () => current
+  }), /Registration configuration changed/)
+  assert.equal(syncCalls[0]?.deviceId, EXISTING_DEVICE_ID)
+  assert.deepEqual(pendingLogoutBindings, [{ scope: 'old-scope', deviceId: CREATED_DEVICE_ID, previousDeviceId: EXISTING_DEVICE_ID }])
+  assert.equal(logoutRetries.length, 1)
+  assert.deepEqual(storedDeviceIds, [])
+  assert.deepEqual(attributeCalls, [])
 })
 
 test('stale enrollment without logout intent does not disable a device or run post-enrollment work', async () => {

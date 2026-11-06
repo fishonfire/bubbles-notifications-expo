@@ -45,7 +45,8 @@ export function useBubblesRegistrationCoordinator (
   const currentRegistrationRef = useRef<Promise<void> | null>(null)
 
   const runRegistration = useCallback((
-    operation: RegistrationOperation
+    operation: RegistrationOperation,
+    options?: { durable?: boolean }
   ): Promise<void> => {
     const generation = generationRef.current
     const isCurrent = () => isMountedRef.current && generationRef.current === generation
@@ -59,7 +60,9 @@ export function useBubblesRegistrationCoordinator (
     }))
 
     const registration = enqueueBubblesRegistration(async () => {
-      if (!isCurrent()) return
+      // Logout intent must drain even when its originating React root retires.
+      // Its result/error updates still obey the generation checks below.
+      if (!options?.durable && !isCurrent()) return
 
       return operation()
     })

@@ -356,21 +356,31 @@ export function BubblesNotificationsProvider (
     const owner = foregroundPresentationOwnerRef.current
 
     if (isRetiredBubblesProvider(owner)) return
-    const release = acquireBubblesProviderOwnership(owner,
-      { appId, appKey, apiBaseUrl, oneSignalMigration: stableMigration }, () => {
-        isMountedRef.current = false
-        lifecycleVersionRef.current += 1
-        maintenancePendingRef.current = false
-        invalidateRegistrations()
-        enrollmentRequestVersionRef.current += 1
-        desiredOperationRef.current += 1
-        enrolledSessionRef.current = null
-        sessionSuspendedRef.current = true
-        pendingEnrollmentRef.current = null
-        maintenanceRequestedRef.current = false
-        clearLogoutRetry()
-        for (const cleanup of [...listenerCleanupsRef.current]) cleanup()
-      })
+    const revoke = () => {
+      isMountedRef.current = false
+      lifecycleVersionRef.current += 1
+      maintenancePendingRef.current = false
+      invalidateRegistrations()
+      enrollmentRequestVersionRef.current += 1
+      desiredOperationRef.current += 1
+      enrolledSessionRef.current = null
+      sessionSuspendedRef.current = true
+      pendingEnrollmentRef.current = null
+      maintenanceRequestedRef.current = false
+      clearLogoutRetry()
+      for (const cleanup of [...listenerCleanupsRef.current]) cleanup()
+    }
+    let release: () => void
+
+    try {
+      release = acquireBubblesProviderOwnership(owner,
+        { appId, appKey, apiBaseUrl, oneSignalMigration: stableMigration }, revoke)
+    } catch (error) {
+      // Child layout effects run first and may already have queued enrollment.
+      // A failed acquisition has no React cleanup, so retire that work now.
+      revoke()
+      throw error
+    }
 
     isMountedRef.current = true
     setState((current) => current.notificationsEnabled
@@ -597,11 +607,13 @@ export function BubblesNotificationsProvider (
     const markResult = marked.then(() => ({ error: null }), (error: unknown) => ({ error }))
 
     return runRegistration(async () => {
-      enrollmentRequestVersionRef.current += 1
-      enrolledSessionRef.current = null
-      if (isCurrent()) setState((current) => ({ ...current, notificationsEnabled: false }))
-      if (operationId === desiredOperationRef.current) pendingEnrollmentRef.current = null
-      maintenanceRequestedRef.current = false
+      if (isCurrent()) {
+        enrollmentRequestVersionRef.current += 1
+        enrolledSessionRef.current = null
+        setState((current) => ({ ...current, notificationsEnabled: false }))
+        if (operationId === desiredOperationRef.current) pendingEnrollmentRef.current = null
+        maintenanceRequestedRef.current = false
+      }
       const result = await markResult
 
       if (result.error !== null) throw result.error
@@ -610,7 +622,7 @@ export function BubblesNotificationsProvider (
         clearLogoutRetry()
         setState((current) => ({ ...current, notificationsEnabled: false }))
       }
-    }).catch((error) => {
+    }, { durable: true }).catch((error) => {
       if (isCurrent()) scheduleLogoutRetry()
       throw error
     })

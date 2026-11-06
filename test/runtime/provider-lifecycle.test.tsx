@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import { act, create, type ReactTestRenderer } from 'react-test-renderer'
-import { StrictMode, useContext } from 'react'
+import { StrictMode, useContext, useLayoutEffect } from 'react'
 import { afterEach, beforeEach, test, vi } from 'vitest'
 import type { BubblesNotificationsContextValue, BubblesNotificationsProviderProps } from '../../src/runtime/context'
 import type { StoredDeviceState } from '../../src/storage/device-state'
 
 const CURRENT_DEVICE_ID = 'device-current'
+const ACKNOWLEDGED_DEVICE_ID = 'acknowledged-device'
 
 type Listener = (value: never) => void
 const native = vi.hoisted(() => ({
@@ -13,6 +14,7 @@ const native = vi.hoisted(() => ({
   flush: vi.fn(async (_state?: StoredDeviceState): Promise<void> => undefined),
   token: vi.fn(async () => 'token-current'),
   prepare: vi.fn(),
+  client: vi.fn(),
   schedule: vi.fn(async () => 'local-id'),
   handler: null as null | { handleNotification: () => Promise<Record<string, boolean>> },
   sync: vi.fn(async (_options: Record<string, unknown>) => ({ action: 'created', deviceId: 'initial-device' })),
@@ -77,9 +79,9 @@ vi.doMock('../../src/storage/device-state', () => ({
   },
   markPendingLogout: async (scope: string, deviceId: string | null) => { native.stored.pendingLogouts = { ...native.stored.pendingLogouts, [scope]: deviceId } },
   clearPendingLogout: async (scope: string) => { delete native.stored.pendingLogouts?.[scope] },
-  bindPendingLogoutTarget: async (scope: string, deviceId: string) => {
+  bindPendingLogoutTarget: async (scope: string, deviceId: string, previousDeviceId?: string | null) => {
     if (!native.stored.pendingLogouts || !Object.prototype.hasOwnProperty.call(native.stored.pendingLogouts, scope)) return false
-    if (native.stored.pendingLogouts[scope] === null) native.stored.pendingLogouts[scope] = deviceId
+    if (native.stored.pendingLogouts[scope] === null || (previousDeviceId != null && native.stored.pendingLogouts[scope] === previousDeviceId)) native.stored.pendingLogouts[scope] = deviceId
 
     return true
   }
@@ -87,7 +89,11 @@ vi.doMock('../../src/storage/device-state', () => ({
 vi.doMock('../../src/api/device-client', () => ({
   syncBubblesDevice: native.sync,
   updateBubblesDeviceAttributes: async () => undefined,
-  createBubblesDeviceClient: () => ({ updateDevice: native.update })
+  createBubblesDeviceClient: (configuration: Record<string, unknown>) => {
+    native.client(configuration)
+
+    return { updateDevice: native.update }
+  }
 }))
 vi.doMock('../../src/runtime/device-attributes', () => ({ collectBubblesDeviceAttributes: async () => ({}) }))
 vi.doMock('../../src/notifications/delivery-status', () => ({
@@ -158,6 +164,7 @@ beforeEach(async () => {
   native.flush.mockReset().mockResolvedValue(undefined)
   native.token.mockClear()
   native.prepare.mockClear()
+  native.client.mockClear()
   native.schedule.mockClear()
   native.update.mockClear()
   contexts.clear()
@@ -324,7 +331,7 @@ test('current provider configuration updates retain presentation and retire stal
 function acknowledgeStoredDevice () {
   native.stored = {
     ...config,
-    deviceId: 'acknowledged-device',
+    deviceId: ACKNOWLEDGED_DEVICE_ID,
     registrationScope: `${config.apiBaseUrl}/${config.appId}`,
     identityAcknowledged: true,
     acknowledgedInstallationId: 'installation',
@@ -440,7 +447,7 @@ test('migration changes invalidate deferred enrollment while eventually clearing
     await act(async () => { release({ action: 'created', deviceId: 'stale-migration-device' }); await Promise.allSettled([registration]) })
     await settle()
   }
-  assert.equal(native.stored.deviceId, 'acknowledged-device')
+  assert.equal(native.stored.deviceId, ACKNOWLEDGED_DEVICE_ID)
   assert.equal(required(contexts.get('current')).notificationsEnabled, false)
   assert.equal(required(contexts.get('current')).isSyncing, false)
 })
@@ -521,4 +528,117 @@ test('replacement enrollment waits for the outgoing canonical disable request to
   assert.equal(native.sync.mock.calls.length, 2)
   assert.equal(native.stored.deviceId, CURRENT_DEVICE_ID)
   assert.equal(required(contexts.get('replacement')).notificationsEnabled, true)
+})
+
+test('a rejected provider cannot enroll work queued by a descendant layout effect', async () => {
+  const currentCallback = vi.fn()
+  let rejectedRegistration: Promise<void> | undefined
+
+  function EnrollOnCommit () {
+    const context = required(useContext(BubblesNotificationsContext))
+
+    useLayoutEffect(() => {
+      rejectedRegistration = context.registerDevice({ userId: 'rejected-user' })
+      void rejectedRegistration.catch(() => undefined)
+    }, [context])
+
+    return null
+  }
+
+  await mount('current', { onNotificationResponse: currentCallback })
+  const preparesBeforeRejectedCommit = native.prepare.mock.calls.length
+
+  await assert.rejects(async () => {
+    await act(async () => {
+      create(<BubblesNotificationsProvider
+        {...config}
+        appKey='conflicting-key'
+      ><EnrollOnCommit /></BubblesNotificationsProvider>)
+    })
+  }, /configur|conflict|credential/i)
+  assert.ok(rejectedRegistration, 'the descendant layout effect must queue its enrollment before ownership is rejected')
+  await act(async () => { await Promise.allSettled([rejectedRegistration]) })
+  await settle()
+  assert.equal(native.sync.mock.calls.length, 0)
+  assert.equal(native.prepare.mock.calls.length, preparesBeforeRejectedCommit)
+  assert.equal(native.stored.appKey, config.appKey)
+  assertListeners(1)
+  emit(native.responses, open())
+  assert.equal(currentCallback.mock.calls.length, 1)
+  await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'accepted-user' }) })
+  assert.equal(native.sync.mock.calls.length, 1)
+})
+
+for (const transition of ['unmount', 'scope change'] as const) {
+  test(`queued logout disables the original identity after ${transition}`, async () => {
+    acknowledgeStoredDevice()
+    const root = await mount('current')
+
+    await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'logged-in-user' }) })
+    let releaseMaintenance!: (token: string) => void
+    const maintenanceToken = new Promise<string>((resolve) => { releaseMaintenance = resolve })
+    let logout: Promise<void> | undefined
+
+    native.token.mockImplementationOnce(() => maintenanceToken)
+    try {
+      emit(native.tokens, 'maintenance-token')
+      await settle()
+      assert.equal(required(contexts.get('current')).isSyncing, true)
+      await act(async () => { logout = required(contexts.get('current')).logout() })
+      await settle()
+      assert.equal(native.update.mock.calls.length, 0)
+      if (transition === 'unmount') {
+        await unmount(root)
+        assertListeners(0)
+      } else {
+        await act(async () => { root.update(tree('current', { apiBaseUrl: 'https://replacement-backend.example', appId: 'replacement-app' })) })
+        await settle()
+        assertListeners(1)
+      }
+    } finally {
+      await act(async () => { releaseMaintenance('maintenance-token'); await logout })
+      await settle()
+    }
+    assert.deepEqual(native.update.mock.calls.map(([deviceId, attributes]) => ({ deviceId, attributes })), [{ deviceId: CURRENT_DEVICE_ID, attributes: { notifications_enabled: false } }])
+    assert.deepEqual(native.client.mock.calls[0][0], { baseUrl: config.apiBaseUrl, appKey: config.appKey })
+    assert.deepEqual(native.stored.pendingLogouts, {})
+    if (transition === 'scope change') {
+      await act(async () => { await required(contexts.get('current')).registerDevice({ userId: 'replacement-scope-user' }) })
+      assert.equal(native.sync.mock.calls[1][0].apiBaseUrl, 'https://replacement-backend.example')
+      assert.equal(required(contexts.get('current')).notificationsEnabled, true)
+    }
+  })
+}
+
+test('logout retargets an acknowledged identity to its recovered canonical result after handover', async () => {
+  const recoveredDeviceId = 'recovered-canonical-device'
+
+  acknowledgeStoredDevice()
+  let release!: (value: { action: string; deviceId: string }) => void
+  const deferred = new Promise<{ action: string; deviceId: string }>((resolve) => { release = resolve })
+  const operations: Promise<unknown>[] = []
+
+  native.sync.mockImplementationOnce(() => deferred)
+  await mount('old')
+  try {
+    await act(async () => {
+      const registration = required(contexts.get('old')).registerDevice({ userId: 'recovered-user' })
+
+      void registration.catch(() => undefined)
+      operations.push(registration)
+    })
+    await settle()
+    assert.equal(native.sync.mock.calls[0][0].deviceId, ACKNOWLEDGED_DEVICE_ID)
+    await act(async () => { operations.push(required(contexts.get('old')).logout()) })
+    await settle()
+    assert.equal(native.stored.pendingLogouts?.[`${config.apiBaseUrl}/${config.appId}`], ACKNOWLEDGED_DEVICE_ID)
+    await mount('replacement')
+  } finally {
+    await act(async () => { release({ action: 'created', deviceId: recoveredDeviceId }); await Promise.allSettled(operations) })
+    await settle()
+  }
+  assert.deepEqual(native.update.mock.calls.map(([deviceId]) => deviceId), [recoveredDeviceId])
+  assert.equal(native.stored.deviceId, ACKNOWLEDGED_DEVICE_ID)
+  assert.deepEqual(native.stored.pendingLogouts, {})
+  assert.equal(required(contexts.get('replacement')).notificationsEnabled, false)
 })

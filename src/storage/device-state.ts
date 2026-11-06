@@ -626,13 +626,16 @@ export async function markPendingLogout (scope: string, deviceId: string | null,
 }
 
 /** Preserve a drained enrollment's logout target without reviving its session. */
-export async function bindPendingLogoutTarget (scope: string, deviceId: string): Promise<boolean> {
+export async function bindPendingLogoutTarget (scope: string, deviceId: string, previousDeviceId?: string | null): Promise<boolean> {
   let hasPendingLogout = false
 
   await updateState((state) => {
     hasPendingLogout = !!state.pendingLogouts && Object.prototype.hasOwnProperty.call(state.pendingLogouts, scope)
 
-    if (!hasPendingLogout || state.pendingLogouts?.[scope] !== null) return state
+    const pendingTarget = state.pendingLogouts?.[scope]
+
+    if (!hasPendingLogout || (pendingTarget !== null &&
+      (previousDeviceId == null || pendingTarget !== previousDeviceId))) return state
 
     return { ...state, pendingLogouts: { ...state.pendingLogouts, [scope]: deviceId } }
   })
