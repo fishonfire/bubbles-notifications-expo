@@ -86,6 +86,7 @@ vi.doMock('../../src/notifications/delivery-status.ts', () => ({ flushStoredBubb
 
 const { markBubblesLogout, retryBubblesLogout } = await import('../../src/runtime/logout.ts')
 const { syncDeviceRegistrationState } = await import('../../src/runtime/sync-device.ts')
+const { resolveRegistrationIdentity } = await import('../../src/runtime/migration.ts')
 const { getRegistrationScope, readStoredDeviceStateAsync, prepareRegistrationScope, acknowledgeRegistrationScope, markPendingLogout, clearPendingLogout, bindPendingLogoutTarget } = await import('../../src/storage/device-state.ts')
 const configuration = { apiBaseUrl: 'https://push.example.test', appId: 42, appKey: 'test-key' }
 const scope = getRegistrationScope(configuration.apiBaseUrl, configuration.appId)
@@ -285,6 +286,74 @@ test('real 404 recovery POST followed by handover disables the new canonical ID 
   assert.equal(state.deviceId, null)
   assert.equal(state.identityAcknowledged, false)
   assert.equal(state.registrationScope, getRegistrationScope(wrongBackend, configuration.appId))
+})
+
+test('legacy upgrade logout follows a stale first reconciliation to its returned canonical device', async () => {
+  fileContents.set(storedStateUri, JSON.stringify({ version: 1, deviceId: legacyDevice, apiBaseUrl: configuration.apiBaseUrl, appKey: configuration.appKey }))
+  const identity = await resolveRegistrationIdentity(configuration)
+
+  assert.equal(identity.deviceId, null)
+  assert.equal((await readStoredDeviceStateAsync()).legacyLogoutTargets?.[scope], legacyDevice)
+  let finishEnrollment!: (response: Response) => void
+  let markEnrollmentStarted!: () => void
+  const enrollmentStarted = new Promise<void>(resolve => { markEnrollmentStarted = resolve })
+  const enrollmentResponse = new Promise<Response>(resolve => { finishEnrollment = resolve })
+  let current = true
+
+  fetchMock.mockImplementationOnce(async () => {
+    markEnrollmentStarted()
+
+    return enrollmentResponse
+  })
+  const registration = syncDeviceRegistrationState({
+    ...configuration, userId: 'outgoing-user', deviceId: null, registrationIdentity: identity,
+    registrationState: { platform: 'android', tokenType: 'fcm', token: 'token', fid: 'fid', permissionStatus: 'granted', notificationsEnabled: true },
+    isCurrent: () => current
+  })
+  const rejectedRegistration = assert.rejects(registration, /Registration configuration changed/)
+
+  await enrollmentStarted
+  await markBubblesLogout(configuration, null)
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], legacyDevice)
+  current = false
+  await prepareRegistrationScope(wrongBackend, configuration.appId, configuration.appKey)
+  finishEnrollment(new Response(JSON.stringify({ id: canonicalDevice, installation_id: identity.installationId }), {
+    status: 200, headers: { 'Content-Type': 'application/json' }
+  }))
+  await rejectedRegistration
+  assert.deepEqual(fetchMock.mock.calls.map(([url, options]) => [url, options?.method]), [
+    [`${configuration.apiBaseUrl}/api/devices/create`, 'POST'],
+    [`${configuration.apiBaseUrl}/api/devices/${canonicalDevice}`, 'PUT']
+  ])
+  assert.deepEqual(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)), { notifications_enabled: false })
+  const state = await readStoredDeviceStateAsync()
+
+  assert.equal(state.pendingLogouts?.[scope], undefined)
+  assert.equal(state.registrationScope, getRegistrationScope(wrongBackend, configuration.appId))
+  assert.equal(state.deviceId, null)
+  assert.equal(state.identityAcknowledged, false)
+})
+
+test('legacy target rebinding requires an existing intent matching the same scope archive', async () => {
+  fileContents.set(storedStateUri, JSON.stringify({ version: 1, deviceId: legacyDevice, apiBaseUrl: configuration.apiBaseUrl, appKey: configuration.appKey }))
+  await prepareRegistrationScope(configuration.apiBaseUrl, configuration.appId, configuration.appKey)
+  assert.equal(await bindPendingLogoutTarget(scope, canonicalDevice, null), false)
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts, undefined)
+
+  await markBubblesLogout(configuration, knownDevice)
+  await bindPendingLogoutTarget(scope, canonicalDevice, null)
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], knownDevice)
+  const otherScope = getRegistrationScope(wrongBackend, configuration.appId)
+
+  await prepareRegistrationScope(wrongBackend, configuration.appId, configuration.appKey)
+  await markPendingLogout(otherScope, legacyDevice)
+  await bindPendingLogoutTarget(otherScope, canonicalDevice, null)
+  const state = await readStoredDeviceStateAsync()
+
+  assert.equal(state.legacyLogoutTargets?.[scope], legacyDevice)
+  assert.equal(state.legacyLogoutTargets?.[otherScope], undefined)
+  assert.equal(state.pendingLogouts?.[scope], knownDevice)
+  assert.equal(state.pendingLogouts?.[otherScope], legacyDevice)
 })
 
 test('preserves a known target when marked again without an ID and conditionally clears', async () => {

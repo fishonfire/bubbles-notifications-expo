@@ -635,6 +635,7 @@ export async function bindPendingLogoutTarget (scope: string, deviceId: string, 
     const pendingTarget = state.pendingLogouts?.[scope]
 
     if (!hasPendingLogout || (pendingTarget !== null &&
+      pendingTarget !== state.legacyLogoutTargets?.[scope] &&
       (previousDeviceId == null || pendingTarget !== previousDeviceId))) return state
 
     return { ...state, pendingLogouts: { ...state.pendingLogouts, [scope]: deviceId } }
