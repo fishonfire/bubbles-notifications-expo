@@ -1,6 +1,7 @@
 import {
   useCallback,
   useRef,
+  type RefObject,
   type Dispatch,
   type SetStateAction
 } from 'react'
@@ -36,11 +37,13 @@ function getFailedRuntimeState (error: unknown): Partial<RuntimeStateUpdate> {
 export function useBubblesRegistrationCoordinator (
   setState: Dispatch<
     SetStateAction<BubblesNotificationsRuntimeState>
-  >
+  >,
+  lifecycle: {
+    isMountedRef: RefObject<boolean>;
+    captureCurrentLifecycle: () => () => boolean;
+  }
 ) {
-  const isMountedRef = useRef(true)
-  const generationRef = useRef(0)
-  const invalidateRegistrations = useCallback(() => { generationRef.current += 1 }, [])
+  const { isMountedRef, captureCurrentLifecycle } = lifecycle
   const pendingRegistrationsRef = useRef(0)
   const currentRegistrationRef = useRef<Promise<void> | null>(null)
 
@@ -48,8 +51,7 @@ export function useBubblesRegistrationCoordinator (
     operation: RegistrationOperation,
     options?: { durable?: boolean }
   ): Promise<void> => {
-    const generation = generationRef.current
-    const isCurrent = () => isMountedRef.current && generationRef.current === generation
+    const isCurrent = captureCurrentLifecycle()
 
     pendingRegistrationsRef.current += 1
 
@@ -118,15 +120,13 @@ export function useBubblesRegistrationCoordinator (
     })
 
     return registration
-  }, [setState])
+  }, [setState, isMountedRef, captureCurrentLifecycle])
 
   const waitForCurrentRegistration = useCallback(async (): Promise<void> => {
     await currentRegistrationRef.current
   }, [])
 
   return {
-    isMountedRef,
-    invalidateRegistrations,
     runRegistration,
     waitForCurrentRegistration
   }

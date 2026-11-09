@@ -7,7 +7,6 @@ import {
   acknowledgeRegistrationScope,
   bindPendingLogoutTarget
 } from '../storage/device-state'
-import { retryBubblesLogout } from './logout'
 import { flushStoredBubblesDeliveryStatuses } from '../notifications/delivery-status'
 
 import {
@@ -190,9 +189,9 @@ export async function syncDeviceRegistrationState (
       // The POST may have enabled a device even though its provider retired.
       // Retain its validated canonical ID for later logout without acknowledging
       // the stale session or overwriting the replacement's registration scope.
-      if (await bindPendingLogoutTarget(identity.registrationScope, nextDeviceId, identity.logoutDeviceId ?? identity.deviceId)) {
-        await retryBubblesLogout({ apiBaseUrl, appId: options.appId, appKey })
-      }
+      // The queued logout (or startup/maintenance retry) owns disabling it once
+      // registration drains, including after the originating provider retires.
+      await bindPendingLogoutTarget(identity.registrationScope, nextDeviceId, identity.logoutDeviceId ?? identity.deviceId)
       throw error
     }
 

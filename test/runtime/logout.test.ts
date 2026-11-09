@@ -278,6 +278,9 @@ test('real 404 recovery POST followed by handover disables the new canonical ID 
     status: 200, headers: { 'Content-Type': 'application/json' }
   }))
   await rejectedRegistration
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], canonicalDevice)
+  assert.ok(fetchMock.mock.calls.every(([, options]) => JSON.parse(String(options?.body)).notifications_enabled !== false))
+  await retryBubblesLogout(configuration)
 
   assert.deepEqual(fetchMock.mock.calls.map(([url, options]) => [url, options?.method]), [
     [`${configuration.apiBaseUrl}/api/devices/${knownDevice}`, 'PUT'],
@@ -323,7 +326,7 @@ test('repeated logout after a failed stale recovery disable retains the canonica
     registrationState: { platform: 'android', tokenType: 'fcm', token: 'token', fid: 'fid', permissionStatus: 'granted', notificationsEnabled: true },
     isCurrent: () => current
   })
-  const rejectedRegistration = assert.rejects(registration, /canonical disable offline/)
+  const rejectedRegistration = assert.rejects(registration, /Registration configuration changed/)
 
   await recoveryStarted
   await markBubblesLogout(configuration, knownDevice)
@@ -334,6 +337,8 @@ test('repeated logout after a failed stale recovery disable retains the canonica
     status: 200, headers: { 'Content-Type': 'application/json' }
   }))
   await rejectedRegistration
+  assert.equal(fetchMock.mock.calls.length, 2, 'registration must leave disable execution to logout')
+  await assert.rejects(retryBubblesLogout(configuration), /canonical disable offline/)
   assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], canonicalDevice)
   await markBubblesLogout(configuration, knownDevice)
   await retryBubblesLogout(configuration)
@@ -380,6 +385,9 @@ test('legacy upgrade logout follows a stale first reconciliation to its returned
     status: 200, headers: { 'Content-Type': 'application/json' }
   }))
   await rejectedRegistration
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], canonicalDevice)
+  assert.ok(fetchMock.mock.calls.every(([, options]) => JSON.parse(String(options?.body)).notifications_enabled !== false))
+  await retryBubblesLogout(configuration)
   assert.deepEqual(fetchMock.mock.calls.map(([url, options]) => [url, options?.method]), [
     [`${configuration.apiBaseUrl}/api/devices/create`, 'POST'],
     [`${configuration.apiBaseUrl}/api/devices/${canonicalDevice}`, 'PUT']
@@ -431,6 +439,9 @@ test('logout during stale installation reconciliation disables the new canonical
     status: 200, headers: { 'Content-Type': 'application/json' }
   }))
   await rejectedRegistration
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], canonicalDevice)
+  assert.ok(fetchMock.mock.calls.every(([, options]) => JSON.parse(String(options?.body)).notifications_enabled !== false))
+  await retryBubblesLogout(configuration)
   assert.deepEqual(fetchMock.mock.calls.map(([url, options]) => [url, options?.method]), [
     [`${configuration.apiBaseUrl}/api/devices/create`, 'POST'],
     [`${configuration.apiBaseUrl}/api/devices/${canonicalDevice}`, 'PUT']

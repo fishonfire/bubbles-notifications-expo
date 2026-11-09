@@ -194,7 +194,7 @@ beforeEach(() => {
   }
 })
 
-test('stale enrollment binds and disables a pending logout target without acknowledging the retired session', async () => {
+test('stale enrollment binds a pending logout target without disabling or acknowledging the retired session', async () => {
   let current = true
 
   hasPendingLogout = true
@@ -210,7 +210,7 @@ test('stale enrollment binds and disables a pending logout target without acknow
     isCurrent: () => current
   }), /Registration configuration changed/)
   assert.deepEqual(pendingLogoutBindings, [{ scope: 'old-scope', deviceId: CREATED_DEVICE_ID, previousDeviceId: null }])
-  assert.deepEqual(logoutRetries, [{ apiBaseUrl: API_BASE_URL, appId: 'app', appKey: 'key' }])
+  assert.deepEqual(logoutRetries, [])
   assert.deepEqual(storedDeviceIds, [])
   assert.deepEqual(attributeCalls, [])
   assert.deepEqual(deliveryStatusFlushCalls, [])
@@ -226,7 +226,7 @@ test('logout binding also survives invalidation during asynchronous acknowledgem
     isCurrent: () => true
   }), /before identity acknowledgement/)
   assert.equal(pendingLogoutBindings.length, 1)
-  assert.equal(logoutRetries.length, 1)
+  assert.equal(logoutRetries.length, 0)
   assert.deepEqual(storedDeviceIds, [])
 })
 
@@ -248,7 +248,7 @@ test('stale canonical recovery binds logout using the resolved request identity 
   }), /Registration configuration changed/)
   assert.equal(syncCalls[0]?.deviceId, EXISTING_DEVICE_ID)
   assert.deepEqual(pendingLogoutBindings, [{ scope: 'old-scope', deviceId: CREATED_DEVICE_ID, previousDeviceId: EXISTING_DEVICE_ID }])
-  assert.equal(logoutRetries.length, 1)
+  assert.equal(logoutRetries.length, 0)
   assert.deepEqual(storedDeviceIds, [])
   assert.deepEqual(attributeCalls, [])
 })

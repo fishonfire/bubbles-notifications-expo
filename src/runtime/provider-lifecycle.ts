@@ -1,7 +1,6 @@
-import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 import { failWithBubblesError } from '../internal/errors'
-import type { RegisterDeviceOptions } from './context'
 import { createLogoutOwnershipGate } from './logout-ownership'
 import {
   acquireBubblesProviderOwnership,
@@ -9,49 +8,22 @@ import {
   isRetiredBubblesProvider,
   type BubblesProviderConfiguration
 } from './provider-ownership'
-import type { EnrolledSession } from './provider-state'
 
-interface ProviderLifecycleOptions extends BubblesProviderConfiguration {
-  isMountedRef: RefObject<boolean>;
-  lifecycleVersionRef: RefObject<number>;
-  enrollmentRequestVersionRef: RefObject<number>;
-  desiredOperationRef: RefObject<number>;
-  enrolledSessionRef: RefObject<EnrolledSession | null>;
-  sessionSuspendedRef: RefObject<boolean>;
-  pendingEnrollmentRef: RefObject<RegisterDeviceOptions | undefined | null>;
-  invalidateRegistrations: () => void;
-  resetPendingMaintenance: () => void;
-  clearRequestedMaintenance: () => void;
-  clearLogoutRetry: () => void;
-  onOwnershipAcquired: () => void;
-}
-
-// Call after configuration invalidation and before the provider's passive
-// subscriptions so acquisition, revocation, and Suspense reconnection keep
-// their layout-effect ordering.
-export function useBubblesProviderLifecycle ({
-  appId,
-  appKey,
-  apiBaseUrl,
-  oneSignalMigration: stableMigration,
-  isMountedRef,
-  lifecycleVersionRef,
-  enrollmentRequestVersionRef,
-  desiredOperationRef,
-  enrolledSessionRef,
-  sessionSuspendedRef,
-  pendingEnrollmentRef,
-  invalidateRegistrations,
-  resetPendingMaintenance,
-  clearRequestedMaintenance,
-  clearLogoutRetry,
-  onOwnershipAcquired
-}: ProviderLifecycleOptions) {
+// Own the lease, cancellation generation, and listeners. The provider installs
+// acquisition in its layout phase and owns enrollment/maintenance invalidation.
+export function useBubblesProviderLifecycle () {
+  const isMountedRef = useRef(true)
+  const generationRef = useRef(0)
   const [ownershipEpoch, setOwnershipEpoch] = useState(0)
   const hasAcquiredOwnershipRef = useRef(false)
   const providerOwnerRef = useRef({})
   const logoutOwnershipRef = useRef(createLogoutOwnershipGate())
   const listenerCleanupsRef = useRef(new Set<() => void>())
+  const captureCurrentLifecycle = useCallback(() => {
+    const generation = generationRef.current
+
+    return () => isMountedRef.current && generationRef.current === generation
+  }, [])
   const observeCurrentProvider = useCallback((observe: () => (() => void) | undefined) => {
     if (!isCurrentBubblesProvider(providerOwnerRef.current)) return
     const cleanup = observe()
@@ -70,28 +42,19 @@ export function useBubblesProviderLifecycle ({
     return release
   }, [])
 
-  useLayoutEffect(() => {
+  const acquireOwnership = useCallback((
+    configuration: BubblesProviderConfiguration,
+    onRevoked: (retired: boolean) => void,
+    onAcquired: () => void
+  ) => {
     const owner = providerOwnerRef.current
-    const configuration = { appId, appKey, apiBaseUrl, oneSignalMigration: stableMigration }
 
     if (isRetiredBubblesProvider(owner)) return
     const revoke = () => {
       logoutOwnershipRef.current.suspendOwnership()
       isMountedRef.current = false
-      lifecycleVersionRef.current += 1
-      resetPendingMaintenance()
-      invalidateRegistrations()
-      enrollmentRequestVersionRef.current += 1
-      desiredOperationRef.current += 1
-      // Suspense disconnects layout effects without unmounting passive consumers.
-      // Keep their session/intent for the same owner, but never for a successor.
-      if (isRetiredBubblesProvider(owner)) {
-        enrolledSessionRef.current = null
-        sessionSuspendedRef.current = true
-        pendingEnrollmentRef.current = null
-      }
-      clearRequestedMaintenance()
-      clearLogoutRetry()
+      generationRef.current += 1
+      onRevoked(isRetiredBubblesProvider(owner))
       for (const cleanup of [...listenerCleanupsRef.current]) cleanup()
     }
     let release: () => void
@@ -108,14 +71,14 @@ export function useBubblesProviderLifecycle ({
 
     isMountedRef.current = true
     logoutOwnershipRef.current.acceptOwnership()
-    onOwnershipAcquired()
+    onAcquired()
     // Reveal reconnects layout effects, but may leave passive effects mounted.
     // Re-run owned resources in their original passive phase after reacquisition.
     if (hasAcquiredOwnershipRef.current) setOwnershipEpoch((current) => current + 1)
     hasAcquiredOwnershipRef.current = true
 
     return release
-  }, [appId, appKey, apiBaseUrl, stableMigration, isMountedRef, invalidateRegistrations, clearLogoutRetry, resetPendingMaintenance, clearRequestedMaintenance, lifecycleVersionRef, enrollmentRequestVersionRef, desiredOperationRef, enrolledSessionRef, sessionSuspendedRef, pendingEnrollmentRef, onOwnershipAcquired])
+  }, [])
 
   function assertCurrentProvider () {
     if (!isMountedRef.current) failWithBubblesError('This BubblesNotificationsProvider has been replaced or unmounted.')
@@ -137,6 +100,9 @@ export function useBubblesProviderLifecycle ({
   }
 
   return {
+    isMountedRef,
+    captureCurrentLifecycle,
+    acquireOwnership,
     providerOwnerRef,
     ownershipEpoch,
     observeCurrentProvider,

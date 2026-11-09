@@ -469,6 +469,56 @@ test('logout during the first enrollment disables its canonical result even afte
   assert.equal(required(contexts.get('replacement')).notificationsEnabled, true)
 })
 
+test('retired registration preserves its error and queued logout attempts disable once before startup retries', async () => {
+  const canonicalDeviceId = 'retired-canonical-device'
+  const disableError = new Error('Disable temporarily unavailable')
+  let release!: (value: { action: string; deviceId: string }) => void
+  const response = new Promise<{ action: string; deviceId: string }>((resolve) => { release = resolve })
+  let registration!: Promise<void>
+  let logout!: Promise<void>
+  let results!: PromiseSettledResult<void>[]
+
+  native.sync.mockImplementationOnce(() => response)
+  native.update.mockRejectedValueOnce(disableError)
+  const root = await mount('old')
+
+  try {
+    await act(async () => {
+      registration = required(contexts.get('old')).registerDevice({ userId: 'outgoing-user' })
+      void registration.catch(() => undefined)
+    })
+    await settle()
+    assert.equal(native.sync.mock.calls.length, 1)
+    await act(async () => {
+      logout = required(contexts.get('old')).logout()
+      void logout.catch(() => undefined)
+    })
+    await unmount(root)
+  } finally {
+    await act(async () => {
+      release({ action: 'created', deviceId: canonicalDeviceId })
+      results = await Promise.allSettled([registration, logout])
+    })
+    await settle()
+  }
+  assert.equal(results[0].status, 'rejected')
+  if (results[0].status === 'rejected') assert.match(String(results[0].reason), /Registration configuration changed/)
+  assert.deepEqual(results[1], { status: 'rejected', reason: disableError })
+  assert.deepEqual(native.update.mock.calls.map(([deviceId, attributes]) => [deviceId, attributes]), [[canonicalDeviceId, { notifications_enabled: false }]])
+  const scope = `${config.apiBaseUrl}/${config.appId}`
+
+  assert.equal(native.stored.pendingLogouts?.[scope], canonicalDeviceId)
+  assert.equal(native.stored.deviceId, null)
+  assertListeners(0)
+  await mount('replacement')
+  assert.deepEqual(native.update.mock.calls.map(([deviceId, attributes]) => [deviceId, attributes]), [
+    [canonicalDeviceId, { notifications_enabled: false }],
+    [canonicalDeviceId, { notifications_enabled: false }]
+  ])
+  assert.deepEqual(native.stored.pendingLogouts, {})
+  assertListeners(1)
+})
+
 test('replacement enrollment waits for the outgoing canonical disable request to complete', async () => {
   const departingDeviceId = 'departing-canonical-device'
   let releaseEnrollment!: (value: { action: string; deviceId: string }) => void
