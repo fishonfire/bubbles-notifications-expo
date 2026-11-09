@@ -42,10 +42,8 @@ export function createProviderStorageFixture (native: ProviderStorageFixtureStat
     bindPendingLogoutTarget: async (scope: string, deviceId: string, previousDeviceId?: string | null) => {
       native.bind(scope, deviceId, previousDeviceId)
       native.stored.registrationLogoutTargets = { ...native.stored.registrationLogoutTargets, [scope]: deviceId }
-      if (!native.stored.pendingLogouts || !Object.prototype.hasOwnProperty.call(native.stored.pendingLogouts, scope)) return false
+      if (!native.stored.pendingLogouts || !Object.prototype.hasOwnProperty.call(native.stored.pendingLogouts, scope)) return
       if (native.stored.pendingLogouts[scope] === null || native.stored.pendingLogouts[scope] === native.stored.legacyLogoutTargets?.[scope] || (previousDeviceId != null && native.stored.pendingLogouts[scope] === previousDeviceId)) native.stored.pendingLogouts[scope] = deviceId
-
-      return true
     }
   }
 }

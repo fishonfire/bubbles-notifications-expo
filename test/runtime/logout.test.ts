@@ -166,7 +166,7 @@ test('a stale first enrollment binds only its pending logout and disables before
   const replacementConfiguration = { ...configuration, apiBaseUrl: wrongBackend }
 
   await prepareRegistrationScope(replacementConfiguration.apiBaseUrl, replacementConfiguration.appId, replacementConfiguration.appKey)
-  assert.equal(await bindPendingLogoutTarget(scope, canonicalDevice), true)
+  await bindPendingLogoutTarget(scope, canonicalDevice)
   let state = await readStoredDeviceStateAsync()
 
   assert.equal(state.registrationScope, getRegistrationScope(wrongBackend, configuration.appId))
@@ -190,12 +190,12 @@ test('a stale first enrollment binds only its pending logout and disables before
 })
 
 test('stale enrollment cannot create logout intent or replace another known logout target', async () => {
-  assert.equal(await bindPendingLogoutTarget(scope, canonicalDevice), false)
+  await bindPendingLogoutTarget(scope, canonicalDevice)
   assert.equal((await readStoredDeviceStateAsync()).pendingLogouts, undefined)
   // An unrelated pending intent is independent of the preceding response receipt.
   fileContents.clear()
   await markPendingLogout(scope, knownDevice)
-  assert.equal(await bindPendingLogoutTarget(scope, canonicalDevice), true)
+  await bindPendingLogoutTarget(scope, canonicalDevice)
   assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], knownDevice)
   const otherScope = getRegistrationScope(wrongBackend, configuration.appId)
 
@@ -213,7 +213,7 @@ test.each([null, knownDevice])('synchronous accepted logout marking precedes an 
   // Ownership acceptance invokes this synchronously before yielding the commit.
   const marked = markBubblesLogout(configuration, previousDeviceId)
 
-  assert.equal(await drainedResponse, true)
+  await drainedResponse
   await marked
   assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], canonicalDevice)
   await retryBubblesLogout(configuration)
@@ -228,7 +228,7 @@ test('stale 404 recovery rebinds the old requested logout target to the returned
   await acknowledgeRegistrationScope(scope, knownDevice, installationId)
   await markBubblesLogout(configuration, knownDevice)
   await prepareRegistrationScope(wrongBackend, configuration.appId, configuration.appKey)
-  assert.equal(await bindPendingLogoutTarget(scope, canonicalDevice, knownDevice), true)
+  await bindPendingLogoutTarget(scope, canonicalDevice, knownDevice)
   let state = await readStoredDeviceStateAsync()
 
   assert.equal(state.pendingLogouts?.[scope], canonicalDevice)
@@ -570,7 +570,7 @@ test('acknowledgement supersedes only its scope response receipt and enrollment 
 test('legacy target rebinding requires an existing intent matching the same scope archive', async () => {
   fileContents.set(storedStateUri, JSON.stringify({ version: 1, deviceId: legacyDevice, apiBaseUrl: configuration.apiBaseUrl, appKey: configuration.appKey }))
   await prepareRegistrationScope(configuration.apiBaseUrl, configuration.appId, configuration.appKey)
-  assert.equal(await bindPendingLogoutTarget(scope, canonicalDevice, null), false)
+  await bindPendingLogoutTarget(scope, canonicalDevice, null)
   assert.equal((await readStoredDeviceStateAsync()).pendingLogouts, undefined)
   // Seed a distinct pre-existing intent, rather than marking from a stale caller
   // after the response has already established newer canonical provenance.

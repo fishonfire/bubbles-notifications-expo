@@ -25,7 +25,6 @@ const storedDeviceIds: (string | null)[] = []
 const deliveryStatusFlushCalls: Record<string, unknown>[] = []
 const pendingLogoutBindings: { scope: string; deviceId: string; previousDeviceId?: string | null }[] = []
 const logoutRetries: Record<string, unknown>[] = []
-let hasPendingLogout = false
 let acknowledgementError: Error | null = null
 let deliveryStatusFlushError: Error | null = null
 let deferredFlush: Promise<void> | null = null
@@ -115,8 +114,6 @@ vi.doMock('../../src/notifications/delivery-status.ts', () => ({
 vi.doMock('../../src/storage/device-state.ts', () => ({
   bindPendingLogoutTarget: async (scope: string, deviceId: string, previousDeviceId?: string | null) => {
     pendingLogoutBindings.push({ scope, deviceId, previousDeviceId })
-
-    return hasPendingLogout
   },
   patchStoredDeviceStateAsync: async (
     value: {
@@ -159,7 +156,6 @@ const {
 beforeEach(() => {
   pendingLogoutBindings.length = 0
   logoutRetries.length = 0
-  hasPendingLogout = false
   acknowledgementError = null
   syncCalls.length = 0
   attributeCalls.length = 0
@@ -197,7 +193,6 @@ beforeEach(() => {
 test('stale enrollment binds a pending logout target without disabling or acknowledging the retired session', async () => {
   let current = true
 
-  hasPendingLogout = true
   syncState.implementation = async () => {
     current = false
 
@@ -217,7 +212,6 @@ test('stale enrollment binds a pending logout target without disabling or acknow
 })
 
 test('logout binding also survives invalidation during asynchronous acknowledgement', async () => {
-  hasPendingLogout = true
   acknowledgementError = new Error('Registration configuration changed before identity acknowledgement.')
   await assert.rejects(syncDeviceRegistrationState({
     appId: 'app', appKey: 'key', apiBaseUrl: API_BASE_URL, userId: 'old-user', deviceId: null,
@@ -233,7 +227,6 @@ test('logout binding also survives invalidation during asynchronous acknowledgem
 test('stale canonical recovery binds logout using the resolved request identity rather than the provider snapshot', async () => {
   let current = true
 
-  hasPendingLogout = true
   syncState.implementation = async () => {
     current = false
 
