@@ -96,7 +96,7 @@ export async function registerBubblesDevice (
 
   const identity = await resolveRegistrationIdentity(options)
 
-  if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+  if (options.isCurrent?.() === false) throw new Error('Registration configuration changed.')
   const deviceId = identity.deviceId
   const registrationState = { ...tokenState, installationId: identity.installationId,
     oneSignalSubscriptionId: identity.oneSignalSubscriptionId, registrationScope: identity.registrationScope }
@@ -168,7 +168,7 @@ export async function maintainBubblesDevice (
   const tokenState = await getBubblesDeviceRegistrationState({ requestPermissions: false })
   const identity = await resolveRegistrationIdentity(options)
 
-  if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+  if (options.isCurrent?.() === false) throw new Error('Registration configuration changed.')
   const registrationState = { ...tokenState, installationId: identity.installationId,
     oneSignalSubscriptionId: identity.oneSignalSubscriptionId, registrationScope: identity.registrationScope }
 

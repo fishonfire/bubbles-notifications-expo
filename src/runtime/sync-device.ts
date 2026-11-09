@@ -120,7 +120,7 @@ async function syncBubblesDeviceAttributes (
   try {
     const attributes = await collectBubblesDeviceAttributes()
 
-    if ((isCurrent && !isCurrent()) || Object.keys(attributes).length === 0) {
+    if (isCurrent?.() === false || Object.keys(attributes).length === 0) {
       return { status: 'skipped', error: null }
     }
 
@@ -158,7 +158,7 @@ export async function syncDeviceRegistrationState (
   try {
     const identity = options.registrationIdentity ?? await resolveRegistrationIdentity({ ...options, apiBaseUrl, appKey })
 
-    if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+    if (options.isCurrent?.() === false) throw new Error('Registration configuration changed.')
     const firebaseInstallationId = options.registrationState.notificationsEnabled
       ? options.registrationState.fid
       : null
@@ -183,7 +183,7 @@ export async function syncDeviceRegistrationState (
     let storedDeviceState
 
     try {
-      if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+      if (options.isCurrent?.() === false) throw new Error('Registration configuration changed.')
       storedDeviceState = await acknowledgeRegistrationScope(identity.registrationScope, nextDeviceId,
         identity.installationId, identity.oneSignalSubscriptionId, identity.oneSignalAppId, options.isCurrent)
     } catch (error) {
@@ -204,7 +204,7 @@ export async function syncDeviceRegistrationState (
     if (nextDeviceId) {
       const syncAttributes = () => syncBubblesDeviceAttributes(apiBaseUrl, appKey, nextDeviceId, options.isCurrent)
       const flushDeliveryStatuses = async () => {
-        if (options.isCurrent && !options.isCurrent()) return
+        if (options.isCurrent?.() === false) return
         try {
           await flushStoredBubblesDeliveryStatuses(storedDeviceState)
         } catch (error) {

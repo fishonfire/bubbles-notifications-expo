@@ -560,7 +560,7 @@ export async function prepareRegistrationScope (apiBaseUrl: string, appId: strin
   const registrationScope = getRegistrationScope(apiBaseUrl, appId)
 
   return updateState((state) => {
-    if (isCurrent && !isCurrent()) failWithBubblesError('Registration configuration changed.')
+    if (isCurrent?.() === false) failWithBubblesError('Registration configuration changed.')
 
     if (state.registrationScope === registrationScope) return { ...state, apiBaseUrl, appKey }
 
@@ -594,7 +594,7 @@ export async function acknowledgeRegistrationScope (
   isCurrent?: () => boolean
 ): Promise<StoredDeviceState> {
   return updateState((state) => {
-    if ((isCurrent && !isCurrent()) || state.registrationScope !== registrationScope) failWithBubblesError('Registration configuration changed before identity acknowledgement.')
+    if (isCurrent?.() === false || state.registrationScope !== registrationScope) failWithBubblesError('Registration configuration changed before identity acknowledgement.')
 
     const legacyLogoutTargets = state.legacyLogoutTargets && { ...state.legacyLogoutTargets }
     const registrationLogoutTargets = state.registrationLogoutTargets && { ...state.registrationLogoutTargets }
@@ -615,7 +615,7 @@ export async function acknowledgeRegistrationScope (
 
 export async function captureScopedSubscription (registrationScope: string, oneSignalSubscriptionId: string, oneSignalAppId: string, isCurrent?: () => boolean): Promise<void> {
   await updateState((state) => {
-    if ((isCurrent && !isCurrent()) || state.registrationScope !== registrationScope) failWithBubblesError('Registration configuration changed while waiting for OneSignal.')
+    if (isCurrent?.() === false || state.registrationScope !== registrationScope) failWithBubblesError('Registration configuration changed while waiting for OneSignal.')
     if (state.oneSignalSubscriptionId && state.oneSignalSubscriptionId !== oneSignalSubscriptionId) failWithBubblesError('OneSignal subscription changed; identity requires reconciliation.')
 
     return { ...state, oneSignalSubscriptionId, oneSignalAppId, identityAcknowledged: false }

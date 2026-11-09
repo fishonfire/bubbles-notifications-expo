@@ -85,10 +85,10 @@ export interface RegistrationIdentity {
 export async function resolveRegistrationIdentity (options: {
   apiBaseUrl: string; appId: string | number; appKey: string; isCurrent?: () => boolean; oneSignalMigration?: OneSignalMigration;
 }): Promise<RegistrationIdentity> {
-  if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+  if (options.isCurrent?.() === false) throw new Error('Registration configuration changed.')
   const installationId = await getOrCreateInstallationId()
 
-  if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+  if (options.isCurrent?.() === false) throw new Error('Registration configuration changed.')
   const state = await prepareRegistrationScope(options.apiBaseUrl, options.appId, options.appKey, options.isCurrent)
   const registrationScope = state.registrationScope
 
