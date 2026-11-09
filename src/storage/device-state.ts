@@ -1,7 +1,12 @@
+import { getRegistrationScope } from './registration-scope'
+import { resolveStoredLogoutTarget } from './logout-target'
+
 import type { File } from 'expo-file-system'
 import { getPrivateFile } from './private-file'
 import { failWithBubblesError } from '../internal/errors'
 import { isPlainObject } from '../internal/validation'
+
+export { getRegistrationScope } from './registration-scope'
 
 const STORED_DEVICE_STATE_FILE_NAME = 'bubbles-notifications-expo-state.json'
 const LEGACY_DEVICE_ID_FILE_NAME = 'device-id.txt'
@@ -546,16 +551,6 @@ export async function storeAppKeyAsync (
   return patchStoredDeviceStateAsync({ appKey })
 }
 
-/** Scope includes the backend base path and app, but deliberately excludes rotating credentials. */
-export function getRegistrationScope (apiBaseUrl: string, appId: string | number): string {
-  const url = new URL(apiBaseUrl.trim())
-
-  url.search = ''
-  url.hash = ''
-
-  return JSON.stringify([url.toString().replace(/\/+$/, ''), String(appId).trim()])
-}
-
 export async function prepareRegistrationScope (apiBaseUrl: string, appId: string | number, appKey: string, isCurrent?: () => boolean): Promise<StoredDeviceState> {
   const registrationScope = getRegistrationScope(apiBaseUrl, appId)
 
@@ -566,14 +561,14 @@ export async function prepareRegistrationScope (apiBaseUrl: string, appId: strin
 
     // Bootstrap must retain a verified legacy device solely for later logout;
     // this archive never participates in canonical enrollment reconciliation.
-    const legacyTarget = !state.registrationScope ? resolveLogoutTarget(state, registrationScope, appKey) : null
+    const legacyTarget = !state.registrationScope ? resolveStoredLogoutTarget(state, registrationScope, appKey) : null
     const legacyLogoutTargets = legacyTarget
       ? { ...state.legacyLogoutTargets, [registrationScope]: legacyTarget }
       : state.legacyLogoutTargets
     const pendingLogouts = state.pendingLogouts && {
       ...state.pendingLogouts,
       ...(state.pendingLogouts[registrationScope] === null
-        ? { [registrationScope]: resolveLogoutTarget(state, registrationScope, appKey) }
+        ? { [registrationScope]: resolveStoredLogoutTarget(state, registrationScope, appKey) }
         : {})
     }
 
@@ -622,25 +617,13 @@ export async function captureScopedSubscription (registrationScope: string, oneS
   })
 }
 
-function resolveLogoutTarget (state: StoredDeviceState, scope: string, appKey?: string): string | null {
-  if (state.registrationLogoutTargets?.[scope]) return state.registrationLogoutTargets[scope]
-  if (state.registrationScope === scope && state.deviceId) return state.deviceId
-  if (!state.registrationScope && state.apiBaseUrl && state.appKey === appKey) {
-    const [, appId] = JSON.parse(scope) as [string, string]
-
-    if (getRegistrationScope(state.apiBaseUrl, appId) === scope) return state.deviceId
-  }
-
-  return state.legacyLogoutTargets?.[scope] ?? null
-}
-
 /** Record logout before draining a registration that may still establish its canonical ID. */
 export async function markPendingLogout (scope: string, deviceId: string | null, appKey?: string): Promise<void> {
   // A bound target can be newer than the caller's device snapshot. Preserve it
   // until disable succeeds; acknowledgement or binding can advance it instead.
   await updateState((state) => ({
     ...state,
-    pendingLogouts: { ...state.pendingLogouts, [scope]: state.pendingLogouts?.[scope] ?? resolveLogoutTarget(state, scope, appKey) ?? deviceId }
+    pendingLogouts: { ...state.pendingLogouts, [scope]: state.pendingLogouts?.[scope] ?? resolveStoredLogoutTarget(state, scope, appKey) ?? deviceId }
   }))
 }
 

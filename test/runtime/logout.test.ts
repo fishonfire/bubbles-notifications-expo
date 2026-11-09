@@ -674,3 +674,39 @@ test('replaces archived legacy logout provenance with an acknowledged canonical 
   await retryBubblesLogout(configuration)
   assert.equal(fetchMock.mock.calls[0][0], `${configuration.apiBaseUrl}/api/devices/${canonicalDevice}`)
 })
+
+test('legacy metadata without a device keeps marking and retry archive fallbacks distinct', async () => {
+  const legacyState = { version: 2, apiBaseUrl: configuration.apiBaseUrl, appKey: configuration.appKey,
+    legacyLogoutTargets: { [scope]: legacyDevice } }
+
+  fileContents.set(storedStateUri, JSON.stringify(legacyState))
+  await markBubblesLogout(configuration, knownDevice)
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], knownDevice)
+
+  fileContents.set(storedStateUri, JSON.stringify({ ...legacyState, pendingLogouts: { [scope]: null } }))
+  await retryBubblesLogout(configuration)
+  assert.equal(fetchMock.mock.calls[0][0], legacyDeviceEndpoint)
+})
+
+test.each([
+  { name: 'bound pending target', pending: knownDevice, receipt: canonicalDevice, expected: knownDevice },
+  { name: 'retired registration receipt', pending: null, receipt: canonicalDevice, expected: canonicalDevice },
+  { name: 'current scoped device', pending: null, receipt: undefined, expected: knownDevice }
+])('marking and retry preserve precedence for $name', async ({ pending, receipt, expected }) => {
+  const storedState = JSON.stringify({ version: 2,
+    apiBaseUrl: configuration.apiBaseUrl, appKey: configuration.appKey, registrationScope: scope,
+    deviceId: knownDevice, pendingLogouts: { [scope]: pending },
+    registrationLogoutTargets: receipt ? { [scope]: receipt } : {},
+    legacyLogoutTargets: { [scope]: legacyDevice } })
+
+  fileContents.set(storedStateUri, storedState)
+  await retryBubblesLogout(configuration)
+  assert.equal(fetchMock.mock.calls[0][0], `${configuration.apiBaseUrl}/api/devices/${expected}`)
+
+  fetchMock.mockClear()
+  fileContents.set(storedStateUri, storedState)
+  await markBubblesLogout(configuration, 'stale-caller-device')
+  assert.equal((await readStoredDeviceStateAsync()).pendingLogouts?.[scope], expected)
+  await retryBubblesLogout(configuration)
+  assert.equal(fetchMock.mock.calls[0][0], `${configuration.apiBaseUrl}/api/devices/${expected}`)
+})

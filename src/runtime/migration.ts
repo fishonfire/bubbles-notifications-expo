@@ -1,3 +1,4 @@
+import { resolveStoredLogoutTarget } from '../storage/logout-target'
 import { getOrCreateInstallationId } from '../storage/installation-id'
 import { captureScopedSubscription, prepareRegistrationScope, type StoredDeviceState } from '../storage/device-state'
 
@@ -98,7 +99,7 @@ export async function resolveRegistrationIdentity (options: {
     (migration?.policy !== 'required' || !!state.oneSignalSubscriptionId)
   const oneSignalSubscriptionId = await resolveMigrationSubscription(state, registrationScope, migration, acknowledged, options.isCurrent)
 
-  const logoutDeviceId = state.registrationLogoutTargets?.[registrationScope] ?? state.deviceId ?? state.legacyLogoutTargets?.[registrationScope]
+  const logoutDeviceId = resolveStoredLogoutTarget(state, registrationScope)
 
   return { installationId, oneSignalSubscriptionId, registrationScope,
     ...(logoutDeviceId ? { logoutDeviceId } : {}),
