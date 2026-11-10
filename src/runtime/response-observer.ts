@@ -125,9 +125,11 @@ function processStartupNotificationResponse (
 export function observeBubblesNotificationResponses (
   options: ObserveBubblesNotificationResponsesOptions
 ): () => void {
+  let active = true
   const processNotificationResponse = (
     response: Notifications.NotificationResponse
   ) => {
+    if (!active) return
     const responseKey = buildNotificationResponseKey(response)
 
     if (!markNotificationResponseHandled(responseKey)) {
@@ -144,6 +146,7 @@ export function observeBubblesNotificationResponses (
   )
 
   return () => {
+    active = false
     subscription.remove()
   }
 }

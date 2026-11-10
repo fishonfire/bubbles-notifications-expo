@@ -11,7 +11,7 @@ const DEFAULT_FOREGROUND_PRESENTATION = {
 
 type NotificationHandlerOwner = object
 
-let activeOwner: NotificationHandlerOwner | null = null
+let activeLease: { owner: NotificationHandlerOwner } | null = null
 let currentPresentationOptions: ForegroundPresentationOptions | undefined
 let isNotificationHandlerInstalled = false
 
@@ -42,18 +42,15 @@ function installBubblesNotificationHandler (): void {
 export function acquireBubblesNotificationHandler (
   owner: NotificationHandlerOwner
 ): () => void {
-  if (activeOwner !== null && activeOwner !== owner) {
-    throw new Error(
-      '[@fishonfire/bubbles-expo] Only one BubblesNotificationsProvider may be mounted at a time.'
-    )
-  }
-
   installBubblesNotificationHandler()
-  activeOwner = owner
+  const lease = { owner }
+
+  activeLease = lease
+  currentPresentationOptions = undefined
 
   return () => {
-    if (activeOwner === owner) {
-      activeOwner = null
+    if (activeLease === lease) {
+      activeLease = null
       currentPresentationOptions = undefined
     }
   }
@@ -63,7 +60,7 @@ export function updateBubblesNotificationHandler (
   owner: NotificationHandlerOwner,
   options?: ForegroundPresentationOptions
 ): void {
-  if (activeOwner !== owner) {
+  if (activeLease?.owner !== owner) {
     return
   }
 

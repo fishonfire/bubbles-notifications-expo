@@ -1,3 +1,4 @@
+import { resolveStoredLogoutTarget } from '../storage/logout-target'
 import { createBubblesDeviceClient } from '../api/device-client'
 import { clearPendingLogout, getRegistrationScope, markPendingLogout, readStoredDeviceStateAsync } from '../storage/device-state'
 
@@ -19,11 +20,9 @@ export async function retryBubblesLogout (configuration: BubblesLogoutConfigurat
   if (!state.pendingLogouts || !Object.prototype.hasOwnProperty.call(state.pendingLogouts, scope)) return
 
   const pendingTarget = state.pendingLogouts[scope]
-  // Legacy metadata has no app scope. Matching backend and app key establishes
-  // ownership without guessing across apps or credential rotations.
-  const matchesLegacyConfiguration = !state.registrationScope && state.apiBaseUrl !== null &&
-    state.appKey === configuration.appKey && getRegistrationScope(state.apiBaseUrl, configuration.appId) === scope
-  const deviceId = pendingTarget ?? ((state.registrationScope === scope || matchesLegacyConfiguration ? state.deviceId : null) ?? state.legacyLogoutTargets?.[scope])
+  // Retry can still use an archive when matching legacy metadata has no ID.
+  // Marking deliberately leaves that case available to the caller's snapshot.
+  const deviceId = pendingTarget ?? resolveStoredLogoutTarget(state, scope, configuration.appKey) ?? state.legacyLogoutTargets?.[scope]
 
   if (!deviceId) {
     await clearPendingLogout(scope, pendingTarget)

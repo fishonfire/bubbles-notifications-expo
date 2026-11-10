@@ -1,3 +1,4 @@
+import { resolveStoredLogoutTarget } from '../storage/logout-target'
 import { getOrCreateInstallationId } from '../storage/installation-id'
 import { captureScopedSubscription, prepareRegistrationScope, type StoredDeviceState } from '../storage/device-state'
 
@@ -72,13 +73,23 @@ async function resolveMigrationSubscription (
   return subscriptionId
 }
 
+export interface RegistrationIdentity {
+  installationId: string;
+  oneSignalSubscriptionId: string | null;
+  registrationScope: string;
+  deviceId: string | null;
+  oneSignalAppId?: string;
+  /** Scoped predecessor for logout; never used as enrollment identity. */
+  logoutDeviceId?: string | null;
+}
+
 export async function resolveRegistrationIdentity (options: {
   apiBaseUrl: string; appId: string | number; appKey: string; isCurrent?: () => boolean; oneSignalMigration?: OneSignalMigration;
-}) {
-  if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+}): Promise<RegistrationIdentity> {
+  if (options.isCurrent?.() === false) throw new Error('Registration configuration changed.')
   const installationId = await getOrCreateInstallationId()
 
-  if (options.isCurrent && !options.isCurrent()) throw new Error('Registration configuration changed.')
+  if (options.isCurrent?.() === false) throw new Error('Registration configuration changed.')
   const state = await prepareRegistrationScope(options.apiBaseUrl, options.appId, options.appKey, options.isCurrent)
   const registrationScope = state.registrationScope
 
@@ -88,7 +99,10 @@ export async function resolveRegistrationIdentity (options: {
     (migration?.policy !== 'required' || !!state.oneSignalSubscriptionId)
   const oneSignalSubscriptionId = await resolveMigrationSubscription(state, registrationScope, migration, acknowledged, options.isCurrent)
 
+  const logoutDeviceId = resolveStoredLogoutTarget(state, registrationScope)
+
   return { installationId, oneSignalSubscriptionId, registrationScope,
+    ...(logoutDeviceId ? { logoutDeviceId } : {}),
     deviceId: acknowledged ? state.deviceId : null,
     oneSignalAppId: state.oneSignalAppId ?? (migration?.policy === 'required' ? migration.oneSignalAppId.trim() : undefined) }
 }

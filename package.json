@@ -1,6 +1,6 @@
 {
   "name": "@fishonfire/bubbles-expo",
-  "version": "0.1.7",
+  "version": "0.1.8",
   "description": "Expo config plugin, explicit background registration API, and React provider for Bubbles notifications.",
   "license": "GPL-3.0-only",
   "main": "./dist/index.js",
@@ -42,7 +42,7 @@
     "clean": "rm -rf dist plugin/build",
     "lint": "eslint . --max-warnings 0",
     "prepare": "npm run build",
-    "test": "vitest run",
+    "test": "vitest run --pool=threads",
     "typecheck": "npm run typecheck:runtime && npm run typecheck:plugin && npm run typecheck:test",
     "typecheck:test": "tsc -p tsconfig.test.json --noEmit",
     "typecheck:runtime": "tsc --noEmit",
@@ -105,7 +105,9 @@
     "eslint-plugin-import-x": "^4.17.1",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-expo": "^1.2.1",
-    "globals": "^17.4.0"
+    "globals": "^17.4.0",
+    "react-test-renderer": "^19.3.1",
+    "@types/react-test-renderer": "^19.3.0"
   },
   "publishConfig": {
     "access": "public"

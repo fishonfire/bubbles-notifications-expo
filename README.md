@@ -143,7 +143,15 @@ Required provider props:
 
 The provider starts its installation-level bootstrap immediately. It persists API configuration, installs notification observers and foreground presentation, loads the stored device identity, reads the current notification permission without prompting, and flushes eligible pending delivery statistics. Authentication is not required for this startup work.
 
-Mount exactly one `BubblesNotificationsProvider`. The package owns Expo's process-global notification handler and installs it once for the lifetime of the JavaScript process. Provider unmount removes package listeners but intentionally does not clear the global handler, because another part of the app may have replaced it. Do not also call `Notifications.setNotificationHandler()` elsewhere; configure foreground behavior with the provider's `foregroundPresentation` prop.
+Mount one `BubblesNotificationsProvider` around your app. Native activity recreation can briefly overlap React roots: the latest committed compatible provider takes ownership, immediately removes the previous provider's listeners and retries, and uses its own callbacks and foreground presentation. A superseded provider stays retired even if it rerenders or the replacement unmounts; its eventual cleanup cannot disable the replacement. Overlapping providers with different app credentials, backend URL, or migration settings throw an explicit configuration error. Required migration compares the bridge object too, so keep that bridge stable.
+
+Suspense hiding and revealing the same provider reconnects its observers and resumes its existing session or pending enrollment. A newer provider permanently supersedes a hidden predecessor.
+
+Registration, maintenance, and startup storage preparation share a process-wide queue. Handover invalidates queued old enrollment and prevents stale asynchronous results from acknowledging storage or updating runtime state. Requests already sent to a backend cannot be recalled; the replacement waits for in-flight registration to settle before starting its own. Each replacement starts a new explicit enrollment session: call `registerDevice(options)` again after authentication, including when switching users. Calls through a retired provider reject. No authenticated user/session is implicitly copied between providers.
+
+Validated canonical IDs returned after retirement are stored per backend/app as logout-only provenance, so a later logout can disable the right device even when there was a gap between providers. Enrollment reconciles identity independently; a successful enrollment supersedes that scope's saved logout target.
+
+The package owns Expo's process-global notification handler and installs it once for the lifetime of the JavaScript process. Final provider cleanup removes package listeners but intentionally does not clear the global handler, because another part of the app may have replaced it. Do not also call `Notifications.setNotificationHandler()` elsewhere; configure foreground behavior with the provider's `foregroundPresentation` prop.
 
 ## Delivery statistics
 
@@ -206,8 +214,10 @@ const { logout } = useBubblesNotifications();
 await logout();
 ```
 
-Await completion before unmounting the provider. A failed request rejects and
-remains persisted for retry at startup, on foreground activation, and every 15
+Await completion before unmounting the provider. Once requested, queued logout
+work keeps its original backend configuration and continues after unmount or
+provider replacement. A failed request rejects and remains persisted for retry
+at startup, on foreground activation, and every 15
 seconds while the app is active. New `registerDevice(options)` calls process any
 pending device disable before enrolling the next authenticated session. Calling
 `logout()` repeatedly is safe. Successful enrollment restores notification
@@ -246,30 +256,6 @@ Existing integrations that still read the package's stored device configuration 
 
 ## Example application
 An example application can be found at: https://github.com/fishonfire/bubbles-notifications-expo-example
-
-## Development
-
-Run `npm run lint` to check authored JavaScript and TypeScript in the runtime, config plugin, tests, and package configuration. Run `npm run lint:fix` to apply automatic fixes. Both commands require zero warnings; generated `dist/` and `plugin/build/` files are excluded.
-
-Linting uses ESLint 10 flat configuration, TypeScript ESLint 8, and maintained Stylistic equivalents of [eslint-config-fishonfire](https://github.com/fishonfire/eslint-config-fishonfire)'s formatting rules. The original SonarJS rule scope is explicit; upgrading the plugin does not enable its entire expanded recommended preset. TypeScript checks use the current recommended rules while retaining existing project choices. Multiline type unions and intersections put `|` and `&` at the start of each line for readability.
-
-Expo 57's three Expo rules and import conventions are configured directly with `eslint-plugin-expo` and `eslint-plugin-import-x`. React checks use `@eslint-react/eslint-plugin`, JSX formatting uses Stylistic, and React Hooks keeps its existing recommended rules. Legacy React checks for `isMounted`, string refs, missing render returns, and unescaped entities have no direct replacement; TypeScript continues checking duplicate JSX props in TSX, and ESLint checks undefined JSX names. Duplicate props in plain JSX no longer have a dedicated lint check. Display-name checking now covers named component wrappers and contexts, so the context gets an explicit display name for React DevTools.
-
-Use Node.js 22.13 or newer for development (CI uses Node.js 22). The npm override makes `eslint-plugin-expo` reuse the project's ESLint 10: the plugin supports it through its peer range but otherwise installs a redundant ESLint 9 dependency. No forced or ignored peer dependencies are needed.
-
-Run `npm run typecheck`, `npm test`, and `npm run build` for the remaining development checks.
-
-## Contributors
-- Simon de la Court (https://github.com/simondelacourt)
-- Jan Deen (https://github.com/Jan-F15H)
-- Menno Jongejan (https://github.com/mennolpFoF)
-
-## Copyright and Licence
-Copyright (c) 2026, Fish on Fire.
-
-Source code is licensed under the [GNU General Public License v3.0](https://github.com/fishonfire/bubbles-notifications-expo/blob/develop/LICENSE).
-
-Published packages contain the compiled runtime, compiled config plugin, `app.plugin.js`, this README, the migration guide, and the license. Local `npm pack` archives are generated release artifacts and are not committed.
 
 ## Migrating imported OneSignal devices
 
@@ -316,3 +302,27 @@ On Android, the plugin merges directory exclusions into `fullBackupContent` and 
 Backups made before this protection was installed can still contain a copied UUID. Those copies are indistinguishable from a normal upgrade, so this change preserves them rather than automatically rotating identities or modifying existing backend associations. Already cloned installations require explicit backend/operator reconciliation. Test upgrade, uninstall/reinstall, clear-data and cross-device cloud-backup/phone-transfer restore on real Android and iOS builds before rollout; unit tests do not validate OS backup behavior.
 
 Pending delivery statuses retain their original scoped device binding. Historical unbound statuses and statuses belonging to a different canonical device remain queued until ledger expiry rather than being reassigned during migration. Backend/operator reconciliation must decide how to handle their history. Native end-to-end push delivery and cohort validation remain rollout checks; JavaScript unit tests do not establish those guarantees.
+
+## Development
+
+Run `npm run lint` to check authored JavaScript and TypeScript in the runtime, config plugin, tests, and package configuration. Run `npm run lint:fix` to apply automatic fixes. Both commands require zero warnings; generated `dist/` and `plugin/build/` files are excluded.
+
+Linting uses ESLint 10 flat configuration, TypeScript ESLint 8, and maintained Stylistic equivalents of [eslint-config-fishonfire](https://github.com/fishonfire/eslint-config-fishonfire)'s formatting rules. The original SonarJS rule scope is explicit; upgrading the plugin does not enable its entire expanded recommended preset. TypeScript checks use the current recommended rules while retaining existing project choices. Multiline type unions and intersections put `|` and `&` at the start of each line for readability.
+
+Expo 57's three Expo rules and import conventions are configured directly with `eslint-plugin-expo` and `eslint-plugin-import-x`. React checks use `@eslint-react/eslint-plugin`, JSX formatting uses Stylistic, and React Hooks keeps its existing recommended rules. Legacy React checks for `isMounted`, string refs, missing render returns, and unescaped entities have no direct replacement; TypeScript continues checking duplicate JSX props in TSX, and ESLint checks undefined JSX names. Duplicate props in plain JSX no longer have a dedicated lint check. Display-name checking now covers named component wrappers and contexts, so the context gets an explicit display name for React DevTools.
+
+Use Node.js 22.13 or newer for development (CI uses Node.js 22). The npm override makes `eslint-plugin-expo` reuse the project's ESLint 10: the plugin supports it through its peer range but otherwise installs a redundant ESLint 9 dependency. No forced or ignored peer dependencies are needed.
+
+Run `npm run typecheck`, `npm test`, and `npm run build` for the remaining development checks.
+
+## Contributors
+- Simon de la Court (https://github.com/simondelacourt)
+- Jan Deen (https://github.com/Jan-F15H)
+- Menno Jongejan (https://github.com/mennolpFoF)
+
+## Copyright and Licence
+Copyright (c) 2026, Fish on Fire.
+
+Source code is licensed under the [GNU General Public License v3.0](https://github.com/fishonfire/bubbles-notifications-expo/blob/develop/LICENSE).
+
+Published packages contain the compiled runtime, compiled config plugin, `app.plugin.js`, this README, the migration guide, and the license. Local `npm pack` archives are generated release artifacts and are not committed.

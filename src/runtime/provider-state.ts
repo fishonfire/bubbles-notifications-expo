@@ -1,5 +1,16 @@
+import type { BubblesProviderConfiguration } from './provider-ownership'
+import type { RegisterBubblesDeviceResult } from './register-device'
 import type { BubblesNotificationsRuntimeSnapshot } from './sync-device'
 import type { NativeTokenType } from './tokens'
+
+export interface EnrolledSession extends BubblesProviderConfiguration {
+  userId: string;
+  aliasing?: string[] | null;
+  appVersion?: string | null;
+  deviceId: string;
+  registrationState: RegisterBubblesDeviceResult['registrationState'];
+  source: 'explicit' | 'legacy';
+}
 
 export interface BubblesNotificationsRuntimeState {
   deviceId: string | null;
