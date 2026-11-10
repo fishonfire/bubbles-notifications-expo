@@ -80,20 +80,18 @@ export function useBubblesProviderLifecycle () {
     return release
   }, [])
 
-  function assertCurrentProvider () {
+  const assertCurrentProvider = useCallback(() => {
     if (!isMountedRef.current) failWithBubblesError('This BubblesNotificationsProvider has been replaced or unmounted.')
-  }
+  }, [])
 
-  function assertProviderOwnership (operation: 'Registration' | 'Logout') {
+  const assertProviderOwnership = useCallback((operation: 'Registration' | 'Logout') => {
     assertCurrentProvider()
     if (!isCurrentBubblesProvider(providerOwnerRef.current)) {
       failWithBubblesError(`${operation} requires successful BubblesNotificationsProvider ownership acquisition.`)
     }
-  }
+  }, [assertCurrentProvider])
 
-  function isCurrentProvider () {
-    return isCurrentBubblesProvider(providerOwnerRef.current)
-  }
+  const isCurrentProvider = useCallback(() => isCurrentBubblesProvider(providerOwnerRef.current), [])
 
   function runOwnedLogout (operation: () => Promise<void>): Promise<void> {
     return logoutOwnershipRef.current.runLogout(operation)

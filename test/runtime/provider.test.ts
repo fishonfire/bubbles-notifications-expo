@@ -102,6 +102,8 @@ class HookRenderer<Props> {
 
   private readonly stateSlots: unknown[] = []
 
+  private readonly stateSetters: ((update: unknown) => void)[] = []
+
   private readonly refSlots: { current: unknown }[] = []
 
   private readonly memoSlots: {
@@ -146,9 +148,8 @@ class HookRenderer<Props> {
           : initialState
     }
 
-    const setState = (
-      update: State | ((state: State) => State)
-    ) => {
+    // React guarantees a stable setter identity across renders.
+    this.stateSetters[slotIndex] ??= (update: unknown) => {
       const currentState = this.stateSlots[slotIndex] as State
 
       this.stateSlots[slotIndex] =
@@ -157,6 +158,7 @@ class HookRenderer<Props> {
           : update
       this.needsRender = true
     }
+    const setState = this.stateSetters[slotIndex]
 
     this.hookIndex += 1
 
@@ -1644,6 +1646,45 @@ test('retained registration callback uses the committed provider configuration',
   assert.equal(registerCalls[0]?.appKey, REPLACEMENT_APP_KEY)
   renderer.unmount()
 })
+
+for (const commitUpdate of [false, true]) {
+  test(`legacy enrollment retry uses committed inputs after a ${commitUpdate ? 'committed' : 'abandoned'} render`, async () => {
+    const renderer = await renderProvider({
+      ready: true,
+      userId: LEGACY_USER,
+      aliasing: ['original'],
+      appVersion: '1.0.0'
+    })
+
+    try {
+      retryLogout.mockRejectedValueOnce(new Error('offline'))
+      await assert.rejects(getContextValue(renderer).registerDevice(), /offline/)
+      await renderer.flush()
+      assert.equal(registerCalls.length, 0)
+
+      const updatedProps = createProviderProps({
+        ready: commitUpdate,
+        userId: 'updated-user',
+        aliasing: ['updated'],
+        appVersion: '2.0.0'
+      })
+
+      if (commitUpdate) await renderer.update(updatedProps)
+      else renderer.abandonRender(updatedProps)
+      await emitTokenRefresh()
+      await renderer.flush()
+
+      assert.equal(registerCalls.length, 1)
+      assert.equal(registerCalls[0]?.userId, commitUpdate ? 'updated-user' : LEGACY_USER)
+      assert.deepEqual(registerCalls[0]?.aliasing, commitUpdate ? ['updated'] : ['original'])
+      assert.equal(registerCalls[0]?.appVersion, commitUpdate ? '2.0.0' : '1.0.0')
+      assert.equal(registerCalls[0]?.registrationOptions, undefined)
+      assert.equal(getContextValue(renderer).notificationsEnabled, true)
+    } finally {
+      renderer.unmount()
+    }
+  })
+}
 
 test('equivalent inline migration configuration retains enrollment and removes bridge observer', async () => {
   const listeners = new Set<(id: string | null) => void>()
