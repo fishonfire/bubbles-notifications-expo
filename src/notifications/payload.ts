@@ -70,7 +70,24 @@ export function getBubblesNotificationData (
 export function getBubblesNotificationDataFromNotification (
   notification: Notification
 ): Record<string, unknown> {
-  return getBubblesNotificationData(notification.request.content.data)
+  const data = getBubblesNotificationData(notification.request.content.data)
+  const trigger = notification.request.trigger
+
+  if (getOptionalIdentifier(data.notification_id) !== null) {
+    return data
+  }
+
+  // Expo exposes flat FCM/APNs custom fields in the iOS push trigger payload,
+  // while content.data may be empty because it expects an Expo-style body object.
+  if (trigger && 'type' in trigger && trigger.type === 'push') {
+    const payload = getBubblesNotificationData(trigger.payload)
+
+    if (getOptionalIdentifier(payload.notification_id) !== null) {
+      return payload
+    }
+  }
+
+  return data
 }
 
 export function normalizeBubblesNotificationPayload (
