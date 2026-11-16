@@ -7,13 +7,16 @@ const NOTIFICATION_1 = 'notification-1'
 const NOTIFICATION_2 = 'notification-2'
 const NOTIFICATION_3 = 'notification-3'
 const NOTIFICATION_SHARED = 'notification-shared'
+const INBOX_URL = '/inbox'
+const RESPONSE_SOURCE = 'notification response'
 
 type MockNotification = {
   request: {
     identifier: string;
     content: {
-      data: Record<string, unknown>;
+      data: Record<string, unknown> | null;
     };
+    trigger?: { type: 'push'; payload: Record<string, unknown> };
   };
 }
 
@@ -58,20 +61,6 @@ vi.doMock('../../src/notifications/delivery-status.ts', () => ({
   }
 }))
 
-vi.doMock('../../src/notifications/payload.ts', () => ({
-  getBubblesNotificationDataFromNotification: (
-    notification: MockNotification
-  ) => notification.request.content.data,
-  normalizeBubblesNotificationPayload: (data: Record<string, unknown>) => ({
-    data,
-    notificationId:
-      typeof data.notification_id === 'string' ? data.notification_id : null,
-    messageTitle: null,
-    body: null,
-    url: typeof data.url === 'string' ? data.url : null
-  })
-}))
-
 function createResponse (
   identifier: string,
   data: Record<string, unknown>,
@@ -103,6 +92,45 @@ beforeEach(() => {
   callbackEvents.length = 0
 })
 
+test.each(['startup', 'live'] as const)(
+  'reports an iOS remote click from the trigger payload on %s',
+  (delivery) => {
+    const notificationId = `ios-remote-${delivery}`
+    const response = createResponse(`ios-request-${delivery}`, {})
+    const payload = {
+      aps: { alert: { title: 'Title', body: 'Body' } },
+      notification_id: notificationId,
+      url: INBOX_URL
+    }
+
+    response.notification.request.content.data = null
+    response.notification.request.trigger = { type: 'push', payload }
+    if (delivery === 'startup') notificationSubscriptions.lastResponse = response
+
+    const cleanup = observeBubblesNotificationResponses({
+      onNotificationResponse: (event) => { callbackEvents.push(event) }
+    })
+
+    notificationSubscriptions.listener?.(response)
+    // A local copy with the same Bubbles ID must not produce a second click.
+    notificationSubscriptions.listener?.(createResponse(`local-${delivery}`, {
+      notification_id: notificationId,
+      url: INBOX_URL
+    }))
+
+    assert.deepEqual(deliveryStatusCalls, [{
+      source: RESPONSE_SOURCE,
+      notificationId,
+      status: 'clicked'
+    }])
+    assert.equal(callbackEvents.length, 1)
+    assert.equal(callbackEvents[0]?.notificationId, notificationId)
+    assert.equal(callbackEvents[0]?.url, INBOX_URL)
+    assert.deepEqual(callbackEvents[0]?.data, payload)
+    cleanup()
+  }
+)
+
 test('processes the last notification response on startup and delegates navigation data', async () => {
   notificationSubscriptions.lastResponse = createResponse('notif-1', {
     url: '/fish',
@@ -132,7 +160,7 @@ test('processes the last notification response on startup and delegates navigati
 
   assert.deepEqual(deliveryStatusCalls, [
     {
-      source: 'notification response',
+      source: RESPONSE_SOURCE,
       notificationId: NOTIFICATION_1,
       status: 'clicked'
     }
@@ -283,7 +311,7 @@ test('queues clicked status even when the application callback throws', () => {
   assert.throws(() => notificationSubscriptions.listener?.(response), /callback failed/)
   notificationSubscriptions.listener?.(response)
   assert.deepEqual(deliveryStatusCalls, [{
-    source: 'notification response',
+    source: RESPONSE_SOURCE,
     notificationId: 'notification-callback-failure',
     status: 'clicked'
   }])
